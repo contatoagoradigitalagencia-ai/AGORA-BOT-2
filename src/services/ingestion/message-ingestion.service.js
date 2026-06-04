@@ -54,7 +54,17 @@ async function findAccount(event) {
     database: WhatsAppAccount.db?.name,
     collection: WhatsAppAccount.collection?.name,
   });
-  return WhatsAppAccount.findOne(query).select('+accessTokenEncrypted +clientTokenEncrypted +webhookSecret +verifyToken');
+  console.dir(query, { depth: null });
+
+  const account = await WhatsAppAccount.findOne(query).select('+accessTokenEncrypted +clientTokenEncrypted +webhookSecret +verifyToken');
+  console.log('[Webhook] account lookup result', {
+    found: Boolean(account),
+    accountId: account?._id,
+    instanceId: account?.instanceId,
+    externalId: account?.externalId,
+    status: account?.status,
+  });
+  return account;
 }
 
 async function upsertContact(account, event) {
