@@ -4,6 +4,7 @@ import { normalizeMetaWebhook } from '../src/providers/whatsapp/meta/normalize.j
 import { normalizeZapiWebhook } from '../src/providers/whatsapp/zapi/normalize.js';
 import { hashPassword, normalizePhone } from '../src/services/auth/auth.service.js';
 import { isWebhookPath } from '../src/config/cors.js';
+import { buildAccountLookup } from '../src/services/ingestion/message-ingestion.service.js';
 
 const meta = normalizeMetaWebhook({
   object: 'whatsapp_business_account',
@@ -22,6 +23,18 @@ const zapi = normalizeZapiWebhook({ instanceId: 'inst1', phone: '5511777777777',
 assert.equal(zapi.length, 1);
 assert.equal(zapi[0].provider, 'zapi');
 assert.equal(zapi[0].text, 'Olá');
+
+const zapiLookup = buildAccountLookup({
+  provider: 'zapi',
+  accountExternalId: '3F36F171852222FE9A0BCE87272212BE',
+});
+assert.deepEqual(zapiLookup.query, {
+  provider: 'zapi',
+  $or: [
+    { instanceId: '3F36F171852222FE9A0BCE87272212BE' },
+    { externalId: '3F36F171852222FE9A0BCE87272212BE' },
+  ],
+});
 
 assert.equal(normalizePhone('(21) 97110-7509'), '21971107509');
 assert.equal(normalizePhone('5521971107509'), '5521971107509');

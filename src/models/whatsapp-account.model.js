@@ -7,6 +7,7 @@ const whatsappAccountSchema = new mongoose.Schema({
   phoneNumber: { type: String, required: true, trim: true },
   phoneNumberId: { type: String, trim: true, index: true },
   wabaId: { type: String, trim: true },
+  externalId: { type: String, trim: true, index: true },
   instanceId: { type: String, trim: true, index: true },
   accessTokenEncrypted: { type: String, default: '', select: false },
   clientTokenEncrypted: { type: String, default: '', select: false },
@@ -19,5 +20,6 @@ const whatsappAccountSchema = new mongoose.Schema({
 whatsappAccountSchema.index({ organizationId: 1, provider: 1, phoneNumber: 1 }, { unique: true });
 whatsappAccountSchema.index({ provider: 1, phoneNumberId: 1 }, { sparse: true });
 whatsappAccountSchema.index({ provider: 1, instanceId: 1 }, { sparse: true });
+whatsappAccountSchema.index({ provider: 1, externalId: 1 }, { sparse: true });
 
 export const WhatsAppAccount = mongoose.model('WhatsAppAccount', whatsappAccountSchema, 'whatsapp_accounts');

@@ -12,10 +12,48 @@ import { getWhatsAppProvider } from '../../providers/whatsapp/index.js';
 import { generateBotAnswer, getBotConfig, shouldSendToHuman } from '../bot/bot-response.service.js';
 import { safeError, safeLog } from '../logging/logger.js';
 
+export function buildAccountLookup(event) {
+  const provider = event.provider;
+  const accountExternalId = String(event.accountExternalId || '').trim();
+
+  if (provider === 'meta') {
+    return {
+      provider,
+      accountExternalId,
+      query: { provider: 'meta', phoneNumberId: accountExternalId },
+    };
+  }
+
+  if (provider === 'zapi') {
+    return {
+      provider,
+      accountExternalId,
+      query: {
+        provider: 'zapi',
+        $or: [
+          { instanceId: accountExternalId },
+          { externalId: accountExternalId },
+        ],
+      },
+    };
+  }
+
+  return {
+    provider,
+    accountExternalId,
+    query: { provider, externalId: accountExternalId },
+  };
+}
+
 async function findAccount(event) {
-  const query = event.provider === 'meta'
-    ? { provider: 'meta', phoneNumberId: event.accountExternalId }
-    : { provider: 'zapi', instanceId: event.accountExternalId };
+  const { provider, accountExternalId, query } = buildAccountLookup(event);
+  console.log({
+    provider,
+    accountExternalId,
+    query,
+    database: WhatsAppAccount.db?.name,
+    collection: WhatsAppAccount.collection?.name,
+  });
   return WhatsAppAccount.findOne(query).select('+accessTokenEncrypted +clientTokenEncrypted +webhookSecret +verifyToken');
 }
 
