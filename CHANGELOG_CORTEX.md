@@ -2,6 +2,38 @@
 
 > Nome do arquivo mantido por compatibilidade documental. O Agora Bot 2 **não** está conectado ao Agora Cortex.
 
+## 2026-06-04 — Autenticação por telefone
+
+### Módulo
+
+Auth + seed admin
+
+### Problema
+
+Frontend AGORA-BOT faz login com telefone/senha em `POST /login`, mas a API não expunha essa rota nem o schema `users` alinhado.
+
+### Solução
+
+- Model `users` com `phone`, `passwordHash`, `active`, `organizationId`, timestamps.
+- Rota pública `POST /login` (bcrypt + JWT, retorno `idPhone` + `token`).
+- Script `npm run create-admin` com `ADMIN_PASSWORD`.
+
+### Arquivos alterados
+
+- `src/models/user.model.js`, `src/routes/auth.routes.js`, `src/services/auth/auth.service.js`
+- `scripts/create-admin.js`, `src/app.js`, `scripts/smoke-test.js`, documentação
+
+### Como testar
+
+```bash
+export ADMIN_PASSWORD='...'
+npm run create-admin
+curl -X POST http://localhost:3000/login -H 'Content-Type: application/json' \
+  -d '{"phone":"5521971107509","password":"..."}'
+```
+
+---
+
 ## 2026-06-04 — Publicação oficial AGORA-BOT-2
 
 ### Módulo

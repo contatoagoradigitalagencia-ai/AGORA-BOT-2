@@ -58,8 +58,13 @@ export function internalRoutes() {
   });
 
   router.post('/api/v1/users', async (req, res) => {
-    const passwordHash = await bcrypt.hash(req.body.password, 12);
-    const user = await User.create({ ...req.body, passwordHash });
+    const { password, phone, ...rest } = req.body;
+    if (!password || !phone) {
+      return res.status(400).json({ error: 'phone and password are required' });
+    }
+    const passwordHash = await bcrypt.hash(password, 12);
+    const normalizedPhone = String(phone).replace(/\D/g, '');
+    const user = await User.create({ ...rest, phone: normalizedPhone, passwordHash });
     res.status(201).json({ data: { ...user.toObject(), passwordHash: undefined } });
   });
 

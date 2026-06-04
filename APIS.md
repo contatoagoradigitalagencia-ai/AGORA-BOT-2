@@ -6,6 +6,36 @@ Prefixo interno: `/api/v1`
 
 ## Públicas (sem JWT)
 
+### `POST /login`
+
+Login do painel (telefone + senha). Compatível com o frontend AGORA-BOT.
+
+**Body:**
+
+```json
+{
+  "phone": "5521971107509",
+  "password": "senha"
+}
+```
+
+**Resposta `200`:**
+
+```json
+{
+  "idPhone": "<organizationId>",
+  "token": "<jwt>"
+}
+```
+
+- `idPhone` é o `organizationId` usado pelo frontend nos cookies.
+- `token` é JWT válido por 7 dias (`Authorization: Bearer`).
+- Telefone é normalizado (apenas dígitos).
+- Senha validada com **bcrypt** contra `users.passwordHash`.
+- Usuário deve ter `active: true`.
+
+**Erros:** `401` credenciais inválidas, `503` se `JWT_SECRET` não estiver configurado.
+
 ### `GET /health`
 
 Status da API e conexão MongoDB (`Agorabot2`).

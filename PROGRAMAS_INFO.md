@@ -31,6 +31,13 @@ O painel operacional fica no repositório separado [AGORA-BOT](https://github.co
 - Commitar `.env` ou tokens reais.
 - Lógica de UI no backend.
 
+## Autenticação (telefone + senha)
+
+- Collection: `users` no banco `Agorabot2`
+- Login público: `POST /login`
+- Primeiro admin: `npm run create-admin` (senha via `ADMIN_PASSWORD`, nunca em texto puro no banco)
+- Frontend AGORA-BOT envia `phone`, `password` e armazena `idPhone` + `token` em cookies
+
 ## Como testar localmente
 
 ```bash
@@ -39,6 +46,8 @@ cp .env.example .env
 npm install
 npm run build
 npm test
+export ADMIN_PASSWORD='sua-senha'
+npm run create-admin
 npm run dev
 ```
 

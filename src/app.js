@@ -2,6 +2,7 @@ import express from 'express';
 import { corsMiddleware } from './config/cors.js';
 import { healthRoutes } from './routes/health.routes.js';
 import { webhookRoutes } from './routes/webhook.routes.js';
+import { authRoutes } from './routes/auth.routes.js';
 import { internalRoutes } from './routes/internal.routes.js';
 import { safeError } from './services/logging/logger.js';
 
@@ -17,6 +18,7 @@ export function createApp({ io } = {}) {
   app.use(corsMiddleware());
 
   app.use(healthRoutes);
+  app.use(authRoutes());
   app.use(webhookRoutes(io));
   app.use(internalRoutes());
 

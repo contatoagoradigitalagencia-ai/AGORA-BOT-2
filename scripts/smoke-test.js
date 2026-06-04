@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
+import bcrypt from 'bcryptjs';
 import { normalizeMetaWebhook } from '../src/providers/whatsapp/meta/normalize.js';
 import { normalizeZapiWebhook } from '../src/providers/whatsapp/zapi/normalize.js';
+import { hashPassword, normalizePhone } from '../src/services/auth/auth.service.js';
 
 const meta = normalizeMetaWebhook({
   object: 'whatsapp_business_account',
@@ -19,5 +21,12 @@ const zapi = normalizeZapiWebhook({ instanceId: 'inst1', phone: '5511777777777',
 assert.equal(zapi.length, 1);
 assert.equal(zapi[0].provider, 'zapi');
 assert.equal(zapi[0].text, 'Olá');
+
+assert.equal(normalizePhone('(21) 97110-7509'), '21971107509');
+assert.equal(normalizePhone('5521971107509'), '5521971107509');
+
+const hash = await hashPassword('test-password');
+assert.equal(await bcrypt.compare('test-password', hash), true);
+assert.equal(await bcrypt.compare('wrong', hash), false);
 
 console.log('Smoke tests OK.');

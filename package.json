@@ -10,7 +10,8 @@
     "dev": "nodemon src/server.js",
     "build": "node scripts/check-all.js",
     "lint": "node scripts/check-all.js",
-    "test": "node scripts/smoke-test.js"
+    "test": "node scripts/smoke-test.js",
+    "create-admin": "node scripts/create-admin.js"
   },
   "engines": {
     "node": ">=20.0.0"

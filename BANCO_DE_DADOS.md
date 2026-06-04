@@ -28,7 +28,7 @@ A conexão Mongoose usa `dbName: env.mongodbDbName` em `src/db/mongoose.js`.
 ## Collections oficiais (Agorabot2)
 
 - `organizations`
-- `users`
+- `users` (`phone` único, `passwordHash` bcrypt, `active`, `organizationId`)
 - `whatsapp_accounts`
 - `contacts`
 - `conversations`

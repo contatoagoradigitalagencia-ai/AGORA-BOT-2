@@ -32,6 +32,9 @@ export function assertRuntimeEnv() {
   if (env.mongodbDbName !== 'Agorabot2') {
     throw new Error(`MONGODB_DB_NAME must be Agorabot2. Received: ${env.mongodbDbName}`);
   }
+  if (!env.jwtSecret) {
+    throw new Error('JWT_SECRET is required for authentication');
+  }
   if (env.nodeEnv === 'production') {
     const required = [
       ['JWT_SECRET', env.jwtSecret],

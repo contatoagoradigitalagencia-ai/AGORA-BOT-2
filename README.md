@@ -24,6 +24,27 @@ npm run test
 npm run dev
 ```
 
+## Primeiro usuário admin
+
+Com MongoDB configurado em `.env`:
+
+```bash
+export ADMIN_PASSWORD='sua-senha-forte'
+npm run create-admin
+```
+
+Isso cria/atualiza em `Agorabot2.users`:
+
+- Ramon — `5521971107509` — `admin@agoradigital.com.br` — role `owner`
+
+Login no frontend:
+
+```bash
+curl -X POST http://localhost:3000/login \
+  -H 'Content-Type: application/json' \
+  -d '{"phone":"5521971107509","password":"sua-senha-forte"}'
+```
+
 Banco oficial:
 
 - Cluster: `AgoraBOT`
@@ -31,6 +52,7 @@ Banco oficial:
 
 ## Rotas principais
 
+- `POST /login`
 - `GET /health`
 - `GET /webhook/meta`
 - `POST /webhook/meta`
