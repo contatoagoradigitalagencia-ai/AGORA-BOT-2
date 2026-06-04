@@ -19,12 +19,29 @@ function pickMedia(payload, type) {
   return {};
 }
 
+function pickTimestamp(payload) {
+  return payload.momment || payload.moment || payload.timestamp || payload.createdAt
+    ? new Date(payload.momment || payload.moment || payload.timestamp || payload.createdAt)
+    : new Date();
+}
+
+function isReceivedInboundCallback(payload) {
+  return String(payload.type || '').toLowerCase() === 'receivedcallback' && payload.fromMe === false;
+}
+
+function hasMessageContent(payload) {
+  return pickType(payload) !== 'unknown';
+}
+
 export function normalizeZapiWebhook(payload) {
   const phone = payload.phone || payload.from || payload.senderPhone;
-  const instanceId = payload.instanceId || payload.instance || payload.sessionId;
+  const instanceId = payload.instanceId || payload.instance || payload.sessionId || payload.externalId;
   if (!phone || !instanceId) return [];
 
-  if (payload.status || payload.messageStatus) {
+  const type = pickType(payload);
+  const shouldTreatAsInboundMessage = isReceivedInboundCallback(payload) || (payload.fromMe === false && hasMessageContent(payload));
+
+  if (!shouldTreatAsInboundMessage && (payload.status || payload.messageStatus)) {
     return [{
       provider: 'zapi',
       accountExternalId: instanceId,
@@ -32,20 +49,20 @@ export function normalizeZapiWebhook(payload) {
       providerMessageId: payload.messageId || payload.id,
       recipient: phone,
       status: payload.status || payload.messageStatus,
-      timestamp: payload.momment ? new Date(payload.momment) : new Date(),
+      timestamp: pickTimestamp(payload),
       raw: payload,
     }];
   }
 
-  const type = pickType(payload);
   return [{
     provider: 'zapi',
     accountExternalId: instanceId,
     event: 'message.received',
     providerMessageId: payload.messageId || payload.id || payload.chatId,
     from: phone,
+    sender: phone,
     contactName: payload.senderName || payload.name || '',
-    timestamp: payload.momment ? new Date(payload.momment) : new Date(),
+    timestamp: pickTimestamp(payload),
     direction: payload.fromMe ? 'outbound' : 'inbound',
     type,
     text: type === 'text' ? pickText(payload) : '',

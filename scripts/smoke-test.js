@@ -24,6 +24,25 @@ assert.equal(zapi.length, 1);
 assert.equal(zapi[0].provider, 'zapi');
 assert.equal(zapi[0].text, 'Olá');
 
+const zapiReceivedCallback = normalizeZapiWebhook({
+  instanceId: '3F36F171852222FE9A0BCE87272212BE',
+  type: 'ReceivedCallback',
+  fromMe: false,
+  status: 'RECEIVED',
+  messageId: 'ACDBEC48A91586E38CC2C271EFAFD6F4',
+  phone: '5521994778076',
+  text: {
+    message: 'Ola teste',
+  },
+});
+assert.equal(zapiReceivedCallback.length, 1);
+assert.equal(zapiReceivedCallback[0].event, 'message.received');
+assert.equal(zapiReceivedCallback[0].direction, 'inbound');
+assert.equal(zapiReceivedCallback[0].providerMessageId, 'ACDBEC48A91586E38CC2C271EFAFD6F4');
+assert.equal(zapiReceivedCallback[0].from, '5521994778076');
+assert.equal(zapiReceivedCallback[0].sender, '5521994778076');
+assert.equal(zapiReceivedCallback[0].text, 'Ola teste');
+
 const zapiLookup = buildAccountLookup({
   provider: 'zapi',
   accountExternalId: '3F36F171852222FE9A0BCE87272212BE',
