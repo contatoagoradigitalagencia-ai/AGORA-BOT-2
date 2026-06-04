@@ -1,13 +1,31 @@
 # Banco de Dados — Agora Bot 2
 
-## Banco oficial
+## Banco oficial (obrigatório)
 
-- Cluster: `AgoraBOT`
-- Database: `Agorabot2`
+| Item | Valor |
+|------|--------|
+| Cluster Atlas | `AgoraBOT` |
+| Database | **`Agorabot2`** |
+| Variável | `MONGODB_DB_NAME=Agorabot2` |
 
-O runtime valida `MONGODB_DB_NAME=Agorabot2` para reduzir risco de escrever no banco legado.
+O arquivo `src/config/env.js` **rejeita** qualquer outro nome de banco em runtime:
 
-## Collections oficiais
+```text
+MONGODB_DB_NAME must be Agorabot2. Received: <outro>
+```
+
+A conexão Mongoose usa `dbName: env.mongodbDbName` em `src/db/mongoose.js`.
+
+## Banco legado `whatsapp` — política
+
+- O banco legado **`whatsapp` não é usado** por esta API.
+- **Nenhuma** collection do banco `whatsapp` é criada, lida ou alterada por este projeto.
+- Não configurar `MONGODB_DB_NAME=whatsapp`.
+- Migrações do legado ficam fora do escopo do AGORA-BOT-2.
+
+> Referências a `whatsapp` no código limitam-se ao produto Meta (`messaging_product: 'whatsapp'`) e à collection **`whatsapp_accounts`** dentro de `Agorabot2` — não ao banco legado.
+
+## Collections oficiais (Agorabot2)
 
 - `organizations`
 - `users`
@@ -31,26 +49,17 @@ O runtime valida `MONGODB_DB_NAME=Agorabot2` para reduzir risco de escrever no b
 
 ## Multiempresa
 
-Entidades operacionais possuem `organizationId` obrigatório:
+Entidades operacionais exigem `organizationId`:
 
-- `whatsapp_accounts`
-- `contacts`
-- `conversations`
-- `messages`
-- `products`
-- `services`
-- `plans`
-- `bot_configs`
-- `prompts`
-- `knowledge_base`
-- `quick_replies`
-- `human_queue`
-- `automations`
-- `flows`
-- `metrics`
-- `logs`
-- `errors`
+`whatsapp_accounts`, `contacts`, `conversations`, `messages`, `products`, `services`, `plans`, `bot_configs`, `prompts`, `knowledge_base`, `quick_replies`, `human_queue`, `automations`, `flows`, `metrics`, `logs`, `errors`.
 
-## Banco legado
+## URI de conexão
 
-Nenhuma collection do banco legado `whatsapp` é criada ou alterada por esta base.
+Exemplo (sem credenciais reais):
+
+```env
+MONGODB_URI=mongodb+srv://USER:PASSWORD@HOST/?retryWrites=true&w=majority
+MONGODB_DB_NAME=Agorabot2
+```
+
+O nome do database na URI **não substitui** `dbName` — o runtime força `Agorabot2`.

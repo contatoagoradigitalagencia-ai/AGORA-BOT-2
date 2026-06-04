@@ -1,36 +1,50 @@
 # Regras de Segurança — Agora Bot 2
 
-## Segredos
+## Nunca commitar
 
-Nunca commitar:
+- `.env`, `.env.local`, `.env.production`
+- Tokens Meta, Z-API, Groq
+- `JWT_SECRET`, `INTERNAL_API_TOKEN`, `ENCRYPTION_KEY`
+- URIs MongoDB com usuário/senha reais
 
-- tokens Meta
-- tokens Z-API
-- `GROQ_API_KEY`
-- `JWT_SECRET`
-- `INTERNAL_API_TOKEN`
-- `ENCRYPTION_KEY`
+Use apenas `.env.example` no repositório.
 
-## Criptografia
+## Banco de dados
 
-`accessToken` e `clientToken` são recebidos por API e gravados como:
+- **Usar somente** `MONGODB_DB_NAME=Agorabot2`.
+- **Proibido** apontar esta API para o banco legado `whatsapp`.
+- O runtime valida o nome do banco antes de conectar.
 
-- `accessTokenEncrypted`
-- `clientTokenEncrypted`
+## Segredos em trânsito e repouso
 
-Quando `ENCRYPTION_KEY` tem tamanho suficiente, usa AES-256-GCM.
+| Dado | Tratamento |
+|------|------------|
+| `accessToken` / `clientToken` WhatsApp | Gravados como `*Encrypted` (AES-256-GCM se `ENCRYPTION_KEY` ≥ 32 bytes) |
+| JWT | Apenas no header `Authorization` |
+| API interna | `x-api-key` = `INTERNAL_API_TOKEN` |
 
-## Autenticação interna
+## Autenticação
 
-APIs `/api/v1/*` exigem:
+Rotas `/api/v1/*` exigem JWT válido **ou** `x-api-key` correto.
 
-- JWT válido, ou
-- `x-api-key` igual a `INTERNAL_API_TOKEN`.
-
-## Multiempresa
-
-Nunca consultar dados operacionais sem `organizationId`.
+Nunca consultar dados operacionais sem `organizationId` quando a rota for multiempresa.
 
 ## Logs
 
-Não registrar tokens, secrets, senhas ou chaves. O logger mascara campos sensíveis por nome.
+O logger **não** deve registrar tokens, senhas ou chaves. Campos sensíveis são mascarados por nome.
+
+## Frontend
+
+O repositório AGORA-BOT não deve receber:
+
+- `GROQ_API_KEY`
+- Tokens Meta/Z-API
+- `JWT_SECRET` de produção
+
+Apenas URL pública da API (`VITE_URL_BACK_END`).
+
+## Integrações externas
+
+- **Meta API** e **Z-API:** alterações apenas neste backend, via providers.
+- **MongoDB:** apenas cluster oficial `Agorabot2`.
+- **Groq:** apenas server-side.

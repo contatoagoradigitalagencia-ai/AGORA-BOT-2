@@ -1,51 +1,90 @@
 # APIs — Agora Bot 2
 
-## Públicas
+Base URL local padrão: `http://localhost:3000`
+
+Prefixo interno: `/api/v1`
+
+## Públicas (sem JWT)
 
 ### `GET /health`
-Retorna status da API e conexão MongoDB.
+
+Status da API e conexão MongoDB (`Agorabot2`).
 
 ### `GET /webhook/meta`
-Verificação da Meta WhatsApp Cloud API.
+
+Verificação do webhook Meta WhatsApp Cloud API (`hub.verify_token`).
 
 ### `POST /webhook/meta`
-Recebe mensagens/statuses da Meta.
+
+Recebe mensagens e statuses da Meta.
 
 ### `POST /webhook/zapi`
-Recebe mensagens/statuses da Z-API.
 
-### Alias legado
+Recebe eventos da Z-API.
 
-- `GET /webhook`
-- `POST /webhook`
+### Alias legado Meta
 
-Mantidos para compatibilidade com integrações Meta existentes.
+| Método | Rota |
+|--------|------|
+| GET | `/webhook` |
+| POST | `/webhook` |
 
-## Internas
+Compatibilidade com integrações que ainda apontam para `/webhook`.
 
-Todas exigem uma das opções:
+## Internas (`/api/v1`)
 
-- `Authorization: Bearer <jwt>`
+Autenticação (uma das opções):
+
+- `Authorization: Bearer <JWT>`
 - `x-api-key: <INTERNAL_API_TOKEN>`
 
-E, quando aplicável:
+Quando aplicável:
 
 - `x-organization-id: <organizationId>`
 
-Rotas:
+### Organização e usuários
 
-- `GET/POST /api/v1/organizations`
+- `GET /api/v1/organizations`
+- `POST /api/v1/organizations`
 - `POST /api/v1/users`
-- `GET/POST /api/v1/whatsapp-accounts`
+
+### WhatsApp
+
+- `GET /api/v1/whatsapp-accounts`
+- `POST /api/v1/whatsapp-accounts`
 - `POST /api/v1/whatsapp-accounts/:id/send-text`
-- `GET/POST/PATCH /api/v1/products`
-- `GET/POST/PATCH /api/v1/services`
-- `GET/POST/PATCH /api/v1/plans`
-- `GET/POST/PATCH /api/v1/bot_configs`
-- `GET/POST/PATCH /api/v1/prompts`
-- `GET/POST/PATCH /api/v1/knowledge_base`
-- `GET/POST/PATCH /api/v1/quick_replies`
+
+### Catálogo
+
+- `GET|POST|PATCH /api/v1/products`
+- `GET|POST|PATCH /api/v1/services`
+- `GET|POST|PATCH /api/v1/plans`
+
+### Bot e conhecimento
+
+- `GET|POST|PATCH /api/v1/bot_configs`
+- `GET|POST|PATCH /api/v1/prompts`
+- `GET|POST|PATCH /api/v1/knowledge_base`
+- `GET|POST|PATCH /api/v1/quick_replies`
+
+### Operação
+
 - `GET /api/v1/conversations`
 - `GET /api/v1/contacts`
 - `GET /api/v1/messages`
 - `GET /api/v1/human-queue`
+
+## Integração com o frontend (AGORA-BOT)
+
+O frontend consome esta API via `VITE_URL_BACK_END` (login, chats, contatos, atendimento humano, etc.).
+
+Não chamar Meta/Z-API/Groq diretamente do browser — sempre via AGORA-BOT-2.
+
+## Códigos de erro comuns
+
+| Situação | Resposta |
+|----------|----------|
+| Sem auth em `/api/v1` | 401 |
+| Organização ausente | 400 |
+| Rota inexistente | 404 |
+| Erro interno | 500 (sem vazar stack em produção) |

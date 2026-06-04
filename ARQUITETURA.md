@@ -1,42 +1,73 @@
 # Arquitetura — Agora Bot 2
 
-## Princípios
-
-- Standalone: não depende do Cortex.
-- Multiempresa por `organizationId`.
-- Providers WhatsApp isolados.
-- IA isolada em `services/ai`.
-- Catálogo interno em MongoDB.
-- Segredos não expostos no frontend.
-
-## Fluxo de mensagem
+## Visão geral
 
 ```text
-Webhook Meta/Z-API
-↓
-Provider normalizeWebhook()
-↓
-processNormalizedEvent()
-↓
-MongoDB: contacts/conversations/messages
-↓
-BotConfig + Catalog + Prompt
-↓
-Groq
-↓
-getWhatsAppProvider()
-↓
-provider.sendText()
-↓
-MongoDB: messages outbound + metrics
+┌─────────────────┐     HTTPS/WS      ┌──────────────────┐
+│  AGORA-BOT      │ ◄──────────────► │  AGORA-BOT-2     │
+│  (Vite/React)   │   JWT / cookies  │  Express + IO    │
+└─────────────────┘                   └────────┬─────────┘
+                                               │
+                    ┌──────────────────────────┼──────────────────────────┐
+                    ▼                          ▼                          ▼
+            MongoDB Agorabot2          Meta Cloud API                 Z-API
+            (oficial)                  (webhook/send)            (webhook/send)
+                    │
+                    ▼
+                 Groq API
 ```
 
-## Módulos
+## Princípios
 
-- `models`: schemas Mongoose oficiais.
-- `providers/whatsapp`: Meta e Z-API.
-- `services/ingestion`: persistência e orquestração de mensagens.
-- `services/bot`: decisão de IA e handoff humano.
-- `services/catalog`: consulta produtos, serviços, planos e base de conhecimento.
-- `services/ai`: Groq.
-- `routes`: webhooks e APIs internas.
+- **Standalone:** não depende do Cortex nem do monorepo Nexus.
+- **Multiempresa:** `organizationId` em todas as entidades operacionais.
+- **Providers isolados:** Meta e Z-API em `src/providers/whatsapp/`.
+- **IA isolada:** `src/services/ai/` — sem acoplamento a provider WhatsApp.
+- **Banco único oficial:** `MONGODB_DB_NAME=Agorabot2` (bloqueio em `assertRuntimeEnv`).
+- **Segredos no servidor:** nunca expor tokens ao frontend.
+
+## Fluxo de mensagem inbound
+
+```text
+Webhook Meta ou Z-API
+        ↓
+normalizeWebhook() (provider)
+        ↓
+processNormalizedEvent() (ingestion)
+        ↓
+MongoDB Agorabot2: contacts → conversations → messages
+        ↓
+BotConfig + Catalog + Prompt
+        ↓
+Groq (services/ai)
+        ↓
+getWhatsAppProvider(account)
+        ↓
+provider.sendText() / mídia
+        ↓
+Persistência outbound + metrics/logs
+        ↓
+Socket.IO (eventos para o frontend)
+```
+
+## Estrutura de pastas
+
+| Pasta | Responsabilidade |
+|-------|------------------|
+| `src/config` | Env, CORS |
+| `src/db` | Conexão Mongoose (`dbName: Agorabot2`) |
+| `src/models` | Schemas oficiais |
+| `src/providers/whatsapp` | Meta + Z-API |
+| `src/services/ingestion` | Persistência de mensagens |
+| `src/services/bot` | Resposta IA e handoff humano |
+| `src/services/catalog` | Produtos, serviços, planos |
+| `src/routes` | Health, webhooks, `/api/v1` |
+| `src/middleware` | Auth JWT e organização |
+| `src/socket` | Socket.IO |
+
+## Deploy recomendado
+
+- **Runtime:** Node 20+ (Railway, Render, Fly.io, VPS, etc.).
+- **Variáveis:** ver `.env.example`.
+- **Health check:** `GET /health`.
+- **Webhooks públicos:** `POST /webhook/meta`, `POST /webhook/zapi`.

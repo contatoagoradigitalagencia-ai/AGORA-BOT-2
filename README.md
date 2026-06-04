@@ -41,3 +41,20 @@ Banco oficial:
 ## Segurança
 
 Segredos ficam no backend e, quando `ENCRYPTION_KEY` está configurada, tokens são gravados criptografados no MongoDB.
+
+Nunca commitar `.env`. O banco legado `whatsapp` **não** é utilizado — apenas `Agorabot2`.
+
+## Frontend
+
+Painel oficial: [AGORA-BOT](https://github.com/contatoagoradigitalagencia-ai/AGORA-BOT)
+
+## Deploy
+
+1. Crie o serviço Node 20+ (Railway, Render, Fly.io, VPS).
+2. Configure todas as variáveis de `.env.example`.
+3. Exponha a porta `PORT` (padrão `3000`).
+4. Health check: `GET /health`.
+5. Configure webhooks Meta/Z-API para `https://<seu-dominio>/webhook/meta` e `/webhook/zapi`.
+6. Aponte o frontend `VITE_URL_BACK_END` para a URL pública desta API.
+
+Documentação: `PROGRAMAS_INFO.md`, `ARQUITETURA.md`, `BANCO_DE_DADOS.md`, `APIS.md`, `MODULOS.md`, `REGRAS_DE_SEGURANCA.md`.
