@@ -37,10 +37,28 @@ export function webhookRoutes(io) {
 
   async function receiveZapi(req, res) {
     try {
+      console.log('[Z-API webhook] payload received', {
+        payload: req.body,
+      });
       const events = normalizeZapiWebhook(req.body);
-      for (const event of events) await processNormalizedEvent(event, io);
+      console.log('[Z-API webhook] normalized events', {
+        count: events.length,
+        normalizedEvent: events,
+      });
+      for (const event of events) {
+        const result = await processNormalizedEvent(event, io);
+        console.log('[Z-API webhook] ingestion result', {
+          event,
+          result,
+        });
+      }
       return res.json({ received: true, events: events.length });
     } catch (error) {
+      console.log('[Z-API webhook] exception', {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        payload: req.body,
+      });
       safeError('[Z-API webhook] failed', error);
       return res.status(500).json({ error: 'Failed to process Z-API webhook' });
     }
