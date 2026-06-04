@@ -2,6 +2,33 @@
 
 > Nome do arquivo mantido por compatibilidade documental. O Agora Bot 2 **não** está conectado ao Agora Cortex.
 
+## 2026-06-04 — CORS webhooks Z-API / Meta
+
+### Módulo
+
+Config CORS
+
+### Problema
+
+`POST /webhook/zapi` bloqueado com `CORS blocked: https://api.z-api.io`.
+
+### Solução
+
+- Webhooks montados antes do CORS restrito do painel.
+- `webhookCorsMiddleware` permissivo em `/webhook`, `/webhook/meta`, `/webhook/zapi`.
+- `https://api.z-api.io` e `https://agora-bot.vercel.app` na lista do painel.
+
+### Como testar
+
+```bash
+curl -X POST http://localhost:3000/webhook/zapi \
+  -H 'Origin: https://api.z-api.io' \
+  -H 'Content-Type: application/json' \
+  -d '{}'
+```
+
+---
+
 ## 2026-06-04 — Autenticação por telefone
 
 ### Módulo
