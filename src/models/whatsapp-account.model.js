@@ -11,6 +11,7 @@ const whatsappAccountSchema = new mongoose.Schema({
   instanceId: { type: String, trim: true, index: true },
   accessTokenEncrypted: { type: String, default: '', select: false },
   clientTokenEncrypted: { type: String, default: '', select: false },
+  credentials: { type: Object, default: {}, select: false },
   verifyToken: { type: String, default: '', select: false },
   webhookSecret: { type: String, default: '', select: false },
   status: { type: String, enum: ['active', 'inactive', 'needs_attention'], default: 'active', index: true },

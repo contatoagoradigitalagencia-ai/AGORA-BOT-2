@@ -2,16 +2,61 @@ import axios from 'axios';
 import { env } from '../../../config/env.js';
 import { decryptSecret } from '../../../services/security/crypto.js';
 
+function readCredential(account, names) {
+  for (const name of names) {
+    const value = account.credentials?.[name] ?? account[name];
+    if (value) return value;
+  }
+  return '';
+}
+
+function readSecret(account, plainNames, encryptedNames) {
+  for (const name of encryptedNames) {
+    const value = account.credentials?.[name] ?? account[name];
+    const decrypted = decryptSecret(value);
+    if (decrypted) return decrypted;
+  }
+
+  return readCredential(account, plainNames);
+}
+
+export function zapiCredentials(account) {
+  const instanceId = readCredential(account, ['instanceId', 'externalId']);
+  const token = readSecret(
+    account,
+    ['instanceToken', 'accessToken', 'token'],
+    ['instanceTokenEncrypted', 'accessTokenEncrypted', 'tokenEncrypted'],
+  );
+  const clientToken = readSecret(
+    account,
+    ['clientToken'],
+    ['clientTokenEncrypted'],
+  ) || env.zapiClientToken;
+
+  return {
+    baseUrl: account.settings?.baseUrl || account.credentials?.baseUrl || env.zapiBaseUrl,
+    instanceId,
+    token,
+    clientToken,
+  };
+}
+
 function baseUrl(account, action) {
-  const base = account.settings?.baseUrl || env.zapiBaseUrl;
-  const instanceId = account.instanceId;
-  const token = decryptSecret(account.accessTokenEncrypted);
-  if (!instanceId || !token) throw new Error('Z-API instanceId/access token not configured');
-  return `${base.replace(/\/$/, '')}/instances/${instanceId}/token/${token}/${action}`;
+  const credentials = zapiCredentials(account);
+  if (!credentials.instanceId || !credentials.token) {
+    console.log('[ZAPI SEND]', {
+      accountId: account?._id,
+      credentials: account?.credentials,
+      instanceId: account?.instanceId,
+      externalId: account?.externalId,
+    });
+    throw new Error('Z-API instanceId/access token not configured');
+  }
+  return `${credentials.baseUrl.replace(/\/$/, '')}/instances/${credentials.instanceId}/token/${credentials.token}/${action}`;
 }
 
 function headers(account) {
-  const clientToken = decryptSecret(account.clientTokenEncrypted) || env.zapiClientToken;
+  const { clientToken } = zapiCredentials(account);
   return clientToken ? { 'client-token': clientToken } : {};
 }
 

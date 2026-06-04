@@ -56,7 +56,7 @@ async function findAccount(event) {
   });
   console.dir(query, { depth: null });
 
-  const account = await WhatsAppAccount.findOne(query).select('+accessTokenEncrypted +clientTokenEncrypted +webhookSecret +verifyToken');
+  const account = await WhatsAppAccount.findOne(query).select('+accessTokenEncrypted +clientTokenEncrypted +credentials +webhookSecret +verifyToken');
   console.log('[Webhook] account lookup result', {
     found: Boolean(account),
     accountId: account?._id,
@@ -268,7 +268,12 @@ export async function processNormalizedEvent(event, io) {
 
     if (!answer) return { ok: true, ai: false };
 
-    const provider = getWhatsAppProvider({ ...account.toObject(), accessTokenEncrypted: account.accessTokenEncrypted, clientTokenEncrypted: account.clientTokenEncrypted });
+    const provider = getWhatsAppProvider({
+      ...account.toObject(),
+      accessTokenEncrypted: account.accessTokenEncrypted,
+      clientTokenEncrypted: account.clientTokenEncrypted,
+      credentials: account.credentials,
+    });
     const result = await provider.sendText(event.from, answer);
     const providerMessageId = result?.messages?.[0]?.id || result?.messageId || result?.id || `local-${Date.now()}`;
     await saveMessage(account, contact, conversation, {

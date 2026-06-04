@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import bcrypt from 'bcryptjs';
 import { normalizeMetaWebhook } from '../src/providers/whatsapp/meta/normalize.js';
 import { normalizeZapiWebhook } from '../src/providers/whatsapp/zapi/normalize.js';
+import { zapiCredentials } from '../src/providers/whatsapp/zapi/provider.js';
 import { hashPassword, normalizePhone } from '../src/services/auth/auth.service.js';
 import { isWebhookPath } from '../src/config/cors.js';
 import { buildAccountLookup } from '../src/services/ingestion/message-ingestion.service.js';
@@ -42,6 +43,26 @@ assert.equal(zapiReceivedCallback[0].providerMessageId, 'ACDBEC48A91586E38CC2C27
 assert.equal(zapiReceivedCallback[0].from, '5521994778076');
 assert.equal(zapiReceivedCallback[0].sender, '5521994778076');
 assert.equal(zapiReceivedCallback[0].text, 'Ola teste');
+
+const zapiCredentialsFromNestedDoc = zapiCredentials({
+  credentials: {
+    instanceId: '3F36F171852222FE9A0BCE87272212BE',
+    instanceToken: 'instance-token',
+    clientToken: 'client-token',
+  },
+});
+assert.equal(zapiCredentialsFromNestedDoc.instanceId, '3F36F171852222FE9A0BCE87272212BE');
+assert.equal(zapiCredentialsFromNestedDoc.token, 'instance-token');
+assert.equal(zapiCredentialsFromNestedDoc.clientToken, 'client-token');
+
+const zapiCredentialsFromRootDoc = zapiCredentials({
+  instanceId: 'root-instance',
+  accessTokenEncrypted: 'root-access-token',
+  clientTokenEncrypted: 'root-client-token',
+});
+assert.equal(zapiCredentialsFromRootDoc.instanceId, 'root-instance');
+assert.equal(zapiCredentialsFromRootDoc.token, 'root-access-token');
+assert.equal(zapiCredentialsFromRootDoc.clientToken, 'root-client-token');
 
 const zapiLookup = buildAccountLookup({
   provider: 'zapi',

@@ -35,6 +35,7 @@ function publicAccount(account) {
   const obj = account.toObject ? account.toObject() : account;
   delete obj.accessTokenEncrypted;
   delete obj.clientTokenEncrypted;
+  delete obj.credentials;
   delete obj.webhookSecret;
   return obj;
 }
@@ -88,7 +89,7 @@ export function internalRoutes() {
 
   router.post('/api/v1/whatsapp-accounts/:id/send-text', requireOrganization, async (req, res) => {
     const account = await WhatsAppAccount.findOne({ _id: req.params.id, organizationId: req.organizationId })
-      .select('+accessTokenEncrypted +clientTokenEncrypted');
+      .select('+accessTokenEncrypted +clientTokenEncrypted +credentials');
     if (!account) return res.status(404).json({ error: 'WhatsApp account not found' });
     const provider = getWhatsAppProvider(account.toObject());
     const result = await provider.sendText(req.body.to, req.body.text);
