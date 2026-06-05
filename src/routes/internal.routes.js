@@ -5,6 +5,7 @@ import {
   Organization,
   User,
   Attendant,
+  ClientIntegration,
   WhatsAppAccount,
   Product,
   Service,
@@ -635,6 +636,149 @@ export function internalRoutes() {
     ).lean();
     if (!data) return res.status(404).json({ error: 'Atendente não encontrado' });
     res.json({ data: { deleted: true, id: req.params.id } });
+  });
+
+
+  // ── Admin — Client Integrations ─────────────────────────────────────────────
+
+  function maskSecret(value) {
+    if (!value || value.length < 6) return '****';
+    return '****' + String(value).slice(-4);
+  }
+
+  function publicIntegration(doc) {
+    const obj = doc.toObject ? doc.toObject() : { ...doc };
+    if (obj._id) obj.id = String(obj._id);
+    // Mascara campos sensíveis
+    if (obj.metaAccessToken) obj.metaAccessToken = maskSecret(obj.metaAccessToken);
+    if (obj.metaVerifyToken) obj.metaVerifyToken = maskSecret(obj.metaVerifyToken);
+    if (obj.metaAppSecret)   obj.metaAppSecret   = maskSecret(obj.metaAppSecret);
+    if (obj.zapiInstanceToken) obj.zapiInstanceToken = maskSecret(obj.zapiInstanceToken);
+    if (obj.zapiClientToken)   obj.zapiClientToken   = maskSecret(obj.zapiClientToken);
+    return obj;
+  }
+
+  // GET — lista integrações
+  router.get('/api/v1/admin/integrations', requireOrganization, async (req, res) => {
+    const data = await ClientIntegration.find({ organizationId: toObjectId(req.organizationId) })
+      .sort({ createdAt: -1 }).lean();
+    res.json({ data: data.map(i => { if (i._id) i.id = String(i._id); return i; }) });
+  });
+
+  // POST — cria integração
+  router.post('/api/v1/admin/integrations', requireOrganization, async (req, res) => {
+    const {
+      clientName, companyName, provider,
+      metaWabaId, metaPhoneNumberId, metaAccessToken, metaVerifyToken, metaAppId, metaAppSecret,
+      zapiInstanceId, zapiInstanceToken, zapiClientToken, zapiBaseUrl,
+    } = req.body;
+
+    if (!clientName?.trim()) return res.status(400).json({ error: 'clientName obrigatório' });
+    if (!provider) return res.status(400).json({ error: 'provider obrigatório' });
+
+    const doc = await ClientIntegration.create({
+      organizationId: toObjectId(req.organizationId),
+      clientName: clientName.trim(),
+      companyName: companyName?.trim() || '',
+      provider,
+      status: 'pending',
+      metaWabaId:          metaWabaId          || '',
+      metaPhoneNumberId:   metaPhoneNumberId   || '',
+      metaAccessToken:     metaAccessToken ? encryptSecret(metaAccessToken) : '',
+      metaVerifyToken:     metaVerifyToken ? encryptSecret(metaVerifyToken) : '',
+      metaAppId:           metaAppId           || '',
+      metaAppSecret:       metaAppSecret ? encryptSecret(metaAppSecret) : '',
+      zapiInstanceId:      zapiInstanceId      || '',
+      zapiInstanceToken:   zapiInstanceToken ? encryptSecret(zapiInstanceToken) : '',
+      zapiClientToken:     zapiClientToken ? encryptSecret(zapiClientToken) : '',
+      zapiBaseUrl:         zapiBaseUrl || 'https://api.z-api.io',
+    });
+
+    res.status(201).json({ data: publicIntegration(doc) });
+  });
+
+  // PATCH — atualiza integração
+  router.patch('/api/v1/admin/integrations/:id', requireOrganization, async (req, res) => {
+    const allowed = ['clientName','companyName','provider','status','zapiBaseUrl',
+      'metaWabaId','metaPhoneNumberId','metaAppId',
+      'metaAccessToken','metaVerifyToken','metaAppSecret',
+      'zapiInstanceId','zapiInstanceToken','zapiClientToken'];
+
+    const update = {};
+    for (const key of allowed) {
+      if (req.body[key] === undefined) continue;
+      const secretFields = ['metaAccessToken','metaVerifyToken','metaAppSecret','zapiInstanceToken','zapiClientToken'];
+      update[key] = secretFields.includes(key) && req.body[key]
+        ? encryptSecret(req.body[key])
+        : req.body[key];
+    }
+
+    const doc = await ClientIntegration.findOneAndUpdate(
+      { _id: req.params.id, organizationId: toObjectId(req.organizationId) },
+      { $set: update },
+      { new: true },
+    );
+    if (!doc) return res.status(404).json({ error: 'Integração não encontrada' });
+    res.json({ data: publicIntegration(doc) });
+  });
+
+  // DELETE — remove integração
+  router.delete('/api/v1/admin/integrations/:id', requireOrganization, async (req, res) => {
+    await ClientIntegration.findOneAndDelete({ _id: req.params.id, organizationId: toObjectId(req.organizationId) });
+    res.json({ data: { deleted: true } });
+  });
+
+  // POST — testa conexão
+  router.post('/api/v1/admin/integrations/:id/test', requireOrganization, async (req, res) => {
+    const { decryptSecret } = await import('../services/security/crypto.js');
+    const doc = await ClientIntegration.findOne(
+      { _id: req.params.id, organizationId: toObjectId(req.organizationId) }
+    ).select('+metaAccessToken +metaVerifyToken +metaAppSecret +zapiInstanceToken +zapiClientToken');
+
+    if (!doc) return res.status(404).json({ error: 'Integração não encontrada' });
+
+    let ok = false;
+    let message = '';
+
+    try {
+      if (doc.provider === 'meta') {
+        const token = decryptSecret(doc.metaAccessToken);
+        const phoneId = doc.metaPhoneNumberId;
+        if (!token || !phoneId) throw new Error('Access Token e Phone Number ID são obrigatórios');
+        const r = await fetch(
+          'https://graph.facebook.com/v21.0/' + phoneId + '?fields=id,display_phone_number',
+          { headers: { Authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(6000) }
+        );
+        const data = await r.json();
+        if (data.error) throw new Error(data.error.message);
+        ok = true;
+        message = 'Conectado: ' + (data.display_phone_number || data.id);
+      } else {
+        // Z-API
+        const instanceId = doc.zapiInstanceId;
+        const token = decryptSecret(doc.zapiInstanceToken);
+        const base = (doc.zapiBaseUrl || 'https://api.z-api.io').replace(/\/$/, '');
+        if (!instanceId || !token) throw new Error('Instance ID e Token são obrigatórios');
+        const r = await fetch(
+          base + '/instances/' + instanceId + '/token/' + token + '/status',
+          { signal: AbortSignal.timeout(6000) }
+        );
+        const data = await r.json();
+        const connected = data?.connected === true || data?.value === 'open' || data?.status === 'open';
+        if (!connected) throw new Error('Instância desconectada ou inválida');
+        ok = true;
+        message = 'Z-API conectada';
+      }
+    } catch (err) {
+      message = err.message;
+    }
+
+    await ClientIntegration.updateOne(
+      { _id: doc._id },
+      { $set: { lastTestedAt: new Date(), lastTestResult: message, status: ok ? 'active' : 'error' } }
+    );
+
+    res.json({ ok, message });
   });
 
   return router;
