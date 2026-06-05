@@ -115,7 +115,7 @@ export function internalRoutes() {
       organizationId: toObjectId(req.organizationId),
       name: String(name).trim(),
       phone: normalizedPhone,
-      email: email || \`\${normalizedPhone}@sem-email.local\`,
+      email: email || (normalizedPhone + '@sem-email.local'),
       role: role || 'agent',
       department: department || '',
       avatarUrl: avatarUrl || '',
