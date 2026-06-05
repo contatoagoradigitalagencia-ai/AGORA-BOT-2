@@ -1,6 +1,7 @@
 import { Server } from 'socket.io';
 import { env } from '../config/env.js';
 import { WhatsAppAccount, Contact, Conversation, Message, QuickReply, HumanQueue } from '../models/index.js';
+import { canSendFreeformMessage } from '../services/messaging/send-window.js';
 import mongoose from 'mongoose';
 
 function toObjId(id) {
@@ -132,25 +133,33 @@ export function createSocketServer(httpServer) {
     socket.on('chat:reply_window', async ({ phone } = {}, callback) => {
       if (typeof callback !== 'function') return;
       try {
-        if (!phone) return callback(true);
+        if (!phone) return callback({ allowed: true, reason: 'no_phone' });
+
         const account = await WhatsAppAccount.findOne({ status: 'active' })
           .sort({ createdAt: 1 }).select('provider').lean();
 
-        if (!account || account.provider !== 'meta') return callback(true);
+        // Z-API: sempre permitido
+        if (!account || account.provider !== 'meta') {
+          return callback({ allowed: true, reason: 'zapi_no_24h_window', provider: account?.provider || 'zapi' });
+        }
 
-        const contact = await Contact.findOne({ phone }).select('_id').lean();
-        if (!contact) return callback(true);
+        const normalizedPhone = String(phone).replace(/-group$/i, '').replace(/@g\.us$/i, '');
+        const contact = await Contact.findOne({
+          $or: [{ phone: normalizedPhone }, { phone: normalizedPhone.replace(/\D/g, '') }]
+        }).select('_id').lean();
 
-        const lastInbound = await Message.findOne({ contactId: contact._id, direction: 'inbound' })
-          .sort({ occurredAt: -1 }).select('occurredAt').lean();
+        if (!contact) return callback({ allowed: true, reason: 'contact_not_found', provider: 'meta' });
 
-        if (!lastInbound?.occurredAt) return callback(true);
+        const windowCheck = await canSendFreeformMessage({
+          provider:       'meta',
+          conversationId: (await Conversation.findOne({ contactId: contact._id }).select('_id').lean())?._id,
+          Message,
+        });
 
-        const diffHours = (Date.now() - new Date(lastInbound.occurredAt).getTime()) / (1000 * 60 * 60);
-        callback(diffHours <= 24);
+        callback({ ...windowCheck, provider: 'meta' });
       } catch (err) {
         console.error('[Socket] chat:reply_window error', err.message);
-        callback(true);
+        callback({ allowed: true, reason: 'error_fail_open' });
       }
     });
 
@@ -187,6 +196,16 @@ export function createSocketServer(httpServer) {
 
         const text = message?.text?.body || message?.body || (typeof message === 'string' ? message : '');
         if (!text.trim()) return callback(400);
+
+        // Verifica janela de envio (Z-API: livre / Meta: 24h)
+        const windowCheck = await canSendFreeformMessage({
+          provider:       account.provider,
+          conversationId: conversation._id,
+          Message,
+        });
+        if (!windowCheck.allowed) {
+          return callback({ error: 'window_expired', reason: windowCheck.reason, requiresTemplate: windowCheck.requiresTemplate });
+        }
 
         const { getWhatsAppProvider } = await import('../providers/whatsapp/index.js');
         const provider = getWhatsAppProvider(account.toObject());

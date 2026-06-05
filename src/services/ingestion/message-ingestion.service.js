@@ -10,6 +10,7 @@ import {
 import { decryptSecret } from '../security/crypto.js';
 import { getWhatsAppProvider } from '../../providers/whatsapp/index.js';
 import { generateBotAnswer, getBotConfig, shouldSendToHuman } from '../bot/bot-response.service.js';
+import { canSendFreeformMessage } from '../messaging/send-window.js';
 import { safeError, safeLog } from '../logging/logger.js';
 
 export function buildAccountLookup(event) {
@@ -354,27 +355,16 @@ export async function processNormalizedEvent(event, io) {
 
     if (conversation.humanRequired || conversation.aiEnabled === false) return { ok: true, ai: false };
 
-    // ── Janela de 24h (apenas Meta Cloud API) ──
-    // Z-API não tem restrição de janela — envia livremente.
-    // Meta só permite responder dentro de 24h após a última mensagem do cliente.
-    if (account.provider === 'meta') {
-      const lastInbound = await Message.findOne({
-        conversationId: conversation._id,
-        direction: 'inbound',
-      }).sort({ occurredAt: -1 }).select('occurredAt').lean();
+    // ── Janela de envio (Z-API: livre / Meta: 24h) ──────────────────────────
+    const windowCheck = await canSendFreeformMessage({
+      provider:        account.provider,
+      conversationId:  conversation._id,
+      Message,
+    });
+    safeLog('[Bot] send window check', { ...windowCheck, provider: account.provider });
 
-      if (lastInbound?.occurredAt) {
-        const diffMs = Date.now() - new Date(lastInbound.occurredAt).getTime();
-        const diffHours = diffMs / (1000 * 60 * 60);
-        if (diffHours > 24) {
-          safeLog('[Bot] Meta 24h window expired — blocking auto-reply', {
-            conversationId: conversation._id,
-            lastInboundAt: lastInbound.occurredAt,
-            diffHours: diffHours.toFixed(1),
-          });
-          return { ok: true, ai: false, blocked: true, reason: 'meta_24h_window_expired' };
-        }
-      }
+    if (!windowCheck.allowed) {
+      return { ok: true, ai: false, blocked: true, reason: windowCheck.reason, requiresTemplate: windowCheck.requiresTemplate };
     }
 
     const botResult = await generateBotAnswer({

@@ -22,6 +22,7 @@ import {
 import { requireAuth } from '../middleware/auth.js';
 import { requireOrganization } from '../middleware/organization.js';
 import { encryptSecret } from '../services/security/crypto.js';
+import { canSendFreeformMessage } from '../services/messaging/send-window.js';
 import { getWhatsAppProvider } from '../providers/whatsapp/index.js';
 
 const models = {
@@ -528,6 +529,20 @@ export function internalRoutes() {
           senderName:  original.direction === 'inbound' ? (contact.name || contact.phone) : 'Bot',
         };
       }
+    }
+
+    // Verifica janela de envio
+    const windowCheck = await canSendFreeformMessage({
+      provider:       account.provider,
+      conversationId: conversation._id,
+      Message,
+    });
+    if (!windowCheck.allowed) {
+      return res.status(403).json({
+        error: 'Fora da janela de 24h da Meta. Use um template aprovado.',
+        reason: windowCheck.reason,
+        requiresTemplate: windowCheck.requiresTemplate,
+      });
     }
 
     const provider = getWhatsAppProvider(account.toObject());
