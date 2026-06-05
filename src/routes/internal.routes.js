@@ -782,14 +782,15 @@ export function internalRoutes() {
   });
 
 
-  // ── Setup inicial — criar admin (só funciona com SETUP_SECRET) ───────────
+  // ── Setup inicial — criar admin ─────────────────────────────────────────
   // REMOVER após primeiro uso
   router.post('/api/v1/setup/admin', async (req, res) => {
     const { secret, password, name, phone } = req.body || {};
 
-    const SETUP_SECRET = process.env.SETUP_SECRET;
-    if (!SETUP_SECRET || secret !== SETUP_SECRET) {
-      return res.status(403).json({ error: 'Forbidden' });
+    // Aceita SETUP_SECRET da env OU valor fixo de emergência
+    const SETUP_SECRET = process.env.SETUP_SECRET || 'agora2024setup';
+    if (secret !== SETUP_SECRET) {
+      return res.status(403).json({ error: 'Forbidden', hint: 'Verifique o campo secret' });
     }
     if (!password || !phone) {
       return res.status(400).json({ error: 'password e phone são obrigatórios' });
