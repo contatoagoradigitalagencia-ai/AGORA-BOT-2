@@ -61,8 +61,12 @@ export function createSocketServer(httpServer) {
       try {
         if (!phone) return callback({ error: 'phone required' });
 
-        // Busca contato pelo telefone (sem filtro de org para doc legado)
-        const contact = await Contact.findOne({ phone: String(phone).replace(/\D/g, '') }).lean()
+        // Normaliza phone — remove sufixo -group e não-dígitos
+        const isGroup = String(phone).includes('-group') || String(phone).includes('@g.us');
+        const normalizedPhone = String(phone).replace(/-group$/i, '').replace(/@g\.us$/i, '');
+
+        const contact = await Contact.findOne({ phone: normalizedPhone.replace(/\D/g, '') }).lean()
+          || await Contact.findOne({ phone: normalizedPhone }).lean()
           || await Contact.findOne({ phone }).lean();
 
         if (!contact) return callback({ messages: [], hasMore: false, nextCursor: null });
@@ -100,7 +104,9 @@ export function createSocketServer(httpServer) {
       if (typeof callback !== 'function') return;
       try {
         if (!phone) return callback(null);
-        const contact = await Contact.findOne({ phone: String(phone).replace(/\D/g, '') }).lean()
+        const normalizedPhone = String(phone).replace(/-group$/i, '').replace(/@g\.us$/i, '');
+        const contact = await Contact.findOne({ phone: normalizedPhone.replace(/\D/g, '') }).lean()
+          || await Contact.findOne({ phone: normalizedPhone }).lean()
           || await Contact.findOne({ phone }).lean();
 
         if (!contact) return callback(null);
