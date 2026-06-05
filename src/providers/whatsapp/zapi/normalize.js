@@ -33,6 +33,25 @@ function hasMessageContent(payload) {
   return pickType(payload) !== 'unknown';
 }
 
+
+function pickGroupInfo(payload) {
+  const phone   = payload.phone || payload.from || '';
+  const isGroup = Boolean(payload.isGroup) || phone.endsWith('@g.us')
+    || Boolean(payload.participantLid) || Boolean(payload.participant);
+
+  const groupId      = isGroup ? phone : null;
+  const participantId = payload.participant || payload.participantLid || payload.senderPhone || '';
+
+  // Detecta menções: array mentions, mentionedJid, ou @numero no texto
+  const mentions = payload.mentions || payload.mentionedJid || [];
+  const textRaw  = payload.text?.message || payload.message?.text || payload.message || payload.body || '';
+  const mentioned = Array.isArray(mentions) && mentions.length > 0
+    ? mentions
+    : (String(textRaw).includes('@') ? [String(textRaw)] : []);
+
+  return { isGroup, groupId, participantId, mentions: mentioned };
+}
+
 export function normalizeZapiWebhook(payload) {
   const phone = payload.phone || payload.from || payload.senderPhone;
   const instanceId = payload.instanceId || payload.instance || payload.sessionId || payload.externalId;
@@ -54,12 +73,13 @@ export function normalizeZapiWebhook(payload) {
     }];
   }
 
+  const groupInfo = pickGroupInfo(payload);
   return [{
     provider: 'zapi',
     accountExternalId: instanceId,
     event: 'message.received',
     providerMessageId: payload.messageId || payload.id || payload.chatId,
-    from: phone,
+    from: groupInfo.isGroup ? (groupInfo.participantId || phone) : phone,
     sender: phone,
     contactName: payload.senderName || payload.name || '',
     timestamp: pickTimestamp(payload),
@@ -69,6 +89,11 @@ export function normalizeZapiWebhook(payload) {
     type,
     text: type === 'text' ? pickText(payload) : '',
     media: pickMedia(payload, type),
+    // Grupo
+    isGroup:       groupInfo.isGroup,
+    groupId:       groupInfo.groupId,
+    participantId: groupInfo.participantId,
+    mentions:      groupInfo.mentions,
     raw: payload,
   }];
 }

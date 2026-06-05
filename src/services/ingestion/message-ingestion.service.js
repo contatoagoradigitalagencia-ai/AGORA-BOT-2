@@ -292,6 +292,37 @@ export async function processNormalizedEvent(event, io) {
       io.broadcastMessage(account.organizationId, event.from, inbound, contact);
     }
 
+    // ── Controle de grupos ────────────────────────────────────────────────────
+    if (event.isGroup) {
+      const groupEnabled = account.settings?.groupRepliesEnabled !== false; // default true
+      const groupMode    = account.settings?.groupReplyMode || 'mention_only'; // default seguro
+
+      if (!groupEnabled || groupMode === 'disabled') {
+        console.log('[Ingestion] group reply disabled — skipping bot response', {
+          groupId: event.groupId, mode: groupMode, enabled: groupEnabled,
+        });
+        return { ok: true, skipped: 'group_disabled', conversationId: conversation._id };
+      }
+
+      if (groupMode === 'mention_only') {
+        // Detecta menção: no texto ou no array mentions
+        const phone     = account.phoneNumber || account.instanceId || '';
+        const textLower = (event.text || '').toLowerCase();
+        const mentioned = (event.mentions || []).some(m => String(m).includes(phone))
+          || textLower.includes('@' + phone)
+          || textLower.includes(phone);
+
+        if (!mentioned) {
+          console.log('[Ingestion] group message without mention — skipping', {
+            groupId: event.groupId, text: event.text?.slice(0, 40),
+          });
+          return { ok: true, skipped: 'group_without_mention', conversationId: conversation._id };
+        }
+        console.log('[Ingestion] group mention detected — allowing reply');
+      }
+      // mode === 'always': permite resposta, não faz nada
+    }
+
     if (!isAutoReplyEnabled(account)) {
       console.log('[Ingestion] autoReply paused, message saved without AI response', {
         event,
