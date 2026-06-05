@@ -1,11 +1,13 @@
 import http from 'node:http';
 import { env } from './config/env.js';
 import { connectMongo } from './db/mongoose.js';
+import { seedAdminIfNeeded } from '../scripts/seed-on-start.js';
 import { createSocketServer } from './socket/index.js';
 import { createApp } from './app.js';
 
 async function bootstrap() {
   await connectMongo();
+  await seedAdminIfNeeded();
   const server = http.createServer();
   const io = createSocketServer(server);
   const app = createApp({ io });
