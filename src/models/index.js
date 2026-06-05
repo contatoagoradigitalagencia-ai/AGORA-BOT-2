@@ -12,3 +12,4 @@ export { QuickReply } from './quick-reply.model.js';
 export { HumanQueue } from './human-queue.model.js';
 export { Automation, Flow } from './automation.model.js';
 export { Metric, Log, ErrorLog } from './observability.model.js';
+export { Attendant } from './attendant.model.js';

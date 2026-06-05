@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import {
   Organization,
   User,
+  Attendant,
   WhatsAppAccount,
   Product,
   Service,
@@ -541,6 +542,61 @@ export function internalRoutes() {
     await user.save();
 
     res.json({ success: true });
+  });
+
+
+  // ── Atendentes (identificadores simples, sem senha) ──────────────────────
+
+  router.get('/api/v1/attendants', requireOrganization, async (req, res) => {
+    const filter = { organizationId: toObjectId(req.organizationId) };
+    if (req.query.active !== undefined) filter.active = req.query.active !== 'false';
+    const data = await Attendant.find(filter).sort({ name: 1 }).lean();
+    res.json({ data: data.map(a => ({ ...a, id: String(a._id) })) });
+  });
+
+  router.post('/api/v1/attendants', requireOrganization, async (req, res) => {
+    const { name, displayName, phone, roleLabel, colorTag, notes, active } = req.body;
+    if (!name?.trim()) return res.status(400).json({ error: 'name é obrigatório' });
+    const data = await Attendant.create({
+      organizationId: toObjectId(req.organizationId),
+      name: name.trim(),
+      displayName: displayName?.trim() || name.trim(),
+      phone: phone ? String(phone).replace(/\D/g, '') : '',
+      roleLabel: roleLabel || 'Atendente',
+      colorTag: colorTag || 'orange',
+      notes: notes || '',
+      active: active !== false,
+    });
+    res.status(201).json({ data: { ...data.toObject(), id: String(data._id) } });
+  });
+
+  router.patch('/api/v1/attendants/:id', requireOrganization, async (req, res) => {
+    const { name, displayName, phone, roleLabel, colorTag, notes, active } = req.body;
+    const update = {};
+    if (name !== undefined)        update.name        = name.trim();
+    if (displayName !== undefined) update.displayName = displayName.trim();
+    if (phone !== undefined)       update.phone       = String(phone).replace(/\D/g, '');
+    if (roleLabel !== undefined)   update.roleLabel   = roleLabel;
+    if (colorTag !== undefined)    update.colorTag    = colorTag;
+    if (notes !== undefined)       update.notes       = notes;
+    if (active !== undefined)      update.active      = Boolean(active);
+    const data = await Attendant.findOneAndUpdate(
+      { _id: req.params.id, organizationId: toObjectId(req.organizationId) },
+      { $set: update },
+      { new: true },
+    ).lean();
+    if (!data) return res.status(404).json({ error: 'Atendente não encontrado' });
+    res.json({ data: { ...data, id: String(data._id) } });
+  });
+
+  router.delete('/api/v1/attendants/:id', requireOrganization, async (req, res) => {
+    const data = await Attendant.findOneAndUpdate(
+      { _id: req.params.id, organizationId: toObjectId(req.organizationId) },
+      { $set: { active: false } },
+      { new: true },
+    ).lean();
+    if (!data) return res.status(404).json({ error: 'Atendente não encontrado' });
+    res.json({ data: { deleted: true, id: req.params.id } });
   });
 
   return router;
