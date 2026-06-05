@@ -162,11 +162,49 @@ export function internalRoutes() {
 
   router.get('/api/v1/whatsapp-accounts', requireOrganization, async (req, res) => {
     let data = await WhatsAppAccount.find(scopedQuery(req)).sort({ createdAt: -1 }).lean();
-    // Fallback: se organizationId não bater (doc legado com org vazia), retorna todas as ativas
     if (!data.length) {
       data = await WhatsAppAccount.find({ status: 'active' }).sort({ createdAt: -1 }).limit(10).lean();
     }
-    res.json({ data: data.map(publicAccount) });
+
+    // Verifica status real na Z-API em tempo real (não confia só no banco)
+    const enriched = await Promise.all(data.map(async (account) => {
+      const pub = publicAccount(account);
+      if (account.provider !== 'zapi') return pub;
+      try {
+        const instanceId = account.credentials?.instanceId || account.instanceId || account.externalId;
+        const token      = account.credentials?.instanceToken || account.credentials?.clientToken;
+        const baseUrl    = account.credentials?.baseUrl || 'https://api.z-api.io';
+        if (!instanceId || !token) return pub;
+
+        const zapiRes = await fetch(
+          `${baseUrl.replace(/\/$/, '')}/instances/${instanceId}/token/${token}/status`,
+          { signal: AbortSignal.timeout(4000) }
+        );
+        if (!zapiRes.ok) return { ...pub, connectionStatus: 'unknown' };
+        const zapiData = await zapiRes.json();
+
+        // Z-API retorna connected: true/false ou value: "open"/"close"
+        const connected = zapiData?.connected === true
+          || zapiData?.value === 'open'
+          || zapiData?.status === 'open'
+          || zapiData?.session === 'open';
+
+        const connectionStatus = connected ? 'connected' : 'disconnected';
+
+        // Atualiza banco se mudou (sem bloquear resposta)
+        if (connected && account.status !== 'active') {
+          WhatsAppAccount.updateOne({ _id: account._id }, { status: 'active' }).catch(() => {});
+        } else if (!connected && account.status === 'active') {
+          WhatsAppAccount.updateOne({ _id: account._id }, { status: 'inactive' }).catch(() => {});
+        }
+
+        return { ...pub, connectionStatus };
+      } catch {
+        return { ...pub, connectionStatus: 'unknown' };
+      }
+    }));
+
+    res.json({ data: enriched });
   });
 
   router.post('/api/v1/whatsapp-accounts', requireOrganization, async (req, res) => {
