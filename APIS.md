@@ -82,7 +82,18 @@ Quando aplicável:
 
 - `GET /api/v1/whatsapp-accounts`
 - `POST /api/v1/whatsapp-accounts`
+- `PATCH /api/v1/whatsapp-accounts/:id/settings`
 - `POST /api/v1/whatsapp-accounts/:id/send-text`
+
+`PATCH /api/v1/whatsapp-accounts/:id/settings` atualiza configuracoes operacionais da conta, incluindo:
+
+```json
+{
+  "autoReply": false
+}
+```
+
+Quando `autoReply` e `false`, mensagens inbound sao salvas, mas a IA nao e chamada e nenhuma resposta automatica e enviada.
 
 ### Catálogo
 
@@ -92,6 +103,8 @@ Quando aplicável:
 
 ### Bot e conhecimento
 
+- `GET /api/v1/bot-config`
+- `PATCH /api/v1/bot-config`
 - `GET|POST|PATCH /api/v1/bot_configs`
 - `GET|POST|PATCH /api/v1/prompts`
 - `GET|POST|PATCH /api/v1/knowledge_base`

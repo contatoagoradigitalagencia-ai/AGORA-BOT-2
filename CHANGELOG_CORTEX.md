@@ -2,6 +2,38 @@
 
 > Nome do arquivo mantido por compatibilidade documental. O Agora Bot 2 **não** está conectado ao Agora Cortex.
 
+## 2026-06-04 — Trava anti-flood e configuracao do Bot
+
+### Módulo
+
+Webhook + ingestao + configuracao interna
+
+### Problema
+
+Mensagens reais da Z-API podiam acionar respostas automáticas sem uma trava central de pausa, com risco de loop por mensagens do proprio bot, callbacks de status ou duplicidade de `providerMessageId`.
+
+### Solução
+
+- `processNormalizedEvent` agora ignora eventos `fromMe`, `fromApi`, `outbound`, `message.status` e callbacks `SENT/RECEIVED/READ`.
+- Resposta automatica so ocorre quando `whatsappAccount.settings.autoReply === true`.
+- Com `autoReply === false`, a mensagem inbound e salva em `contacts`, `conversations` e `messages`, mas a IA nao e chamada e nenhuma resposta e enviada.
+- Trava por `whatsappAccountId + provider + providerMessageId` evita responder duas vezes a mesma mensagem.
+- Novo endpoint `PATCH /api/v1/whatsapp-accounts/:id/settings`.
+- Novos endpoints de configuracao: `GET/PATCH /api/v1/bot-config`, com suporte aos prompts ja existentes.
+
+### Como testar
+
+```bash
+npm test
+curl -X PATCH http://localhost:3000/api/v1/whatsapp-accounts/<id>/settings \
+  -H 'Authorization: Bearer <token>' \
+  -H 'x-organization-id: <organizationId>' \
+  -H 'Content-Type: application/json' \
+  -d '{"autoReply":false}'
+```
+
+---
+
 ## 2026-06-04 — CORS webhooks Z-API / Meta
 
 ### Módulo

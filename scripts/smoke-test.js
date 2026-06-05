@@ -5,7 +5,7 @@ import { normalizeZapiWebhook } from '../src/providers/whatsapp/zapi/normalize.j
 import { zapiCredentials } from '../src/providers/whatsapp/zapi/provider.js';
 import { hashPassword, normalizePhone } from '../src/services/auth/auth.service.js';
 import { isWebhookPath } from '../src/config/cors.js';
-import { buildAccountLookup } from '../src/services/ingestion/message-ingestion.service.js';
+import { buildAccountLookup, isAutoReplyEnabled, shouldIgnoreEvent } from '../src/services/ingestion/message-ingestion.service.js';
 
 const meta = normalizeMetaWebhook({
   object: 'whatsapp_business_account',
@@ -43,6 +43,25 @@ assert.equal(zapiReceivedCallback[0].providerMessageId, 'ACDBEC48A91586E38CC2C27
 assert.equal(zapiReceivedCallback[0].from, '5521994778076');
 assert.equal(zapiReceivedCallback[0].sender, '5521994778076');
 assert.equal(zapiReceivedCallback[0].text, 'Ola teste');
+assert.equal(zapiReceivedCallback[0].fromMe, false);
+
+assert.deepEqual(shouldIgnoreEvent({
+  event: 'message.received',
+  direction: 'outbound',
+}), { ignored: true, reason: 'outbound' });
+assert.deepEqual(shouldIgnoreEvent({
+  event: 'message.received',
+  direction: 'inbound',
+  raw: { fromApi: true },
+}), { ignored: true, reason: 'from_api' });
+assert.deepEqual(shouldIgnoreEvent({
+  event: 'message.status',
+  status: 'READ',
+}), { ignored: true, reason: 'status_event' });
+assert.deepEqual(shouldIgnoreEvent(zapiReceivedCallback[0]), { ignored: false, reason: '' });
+assert.equal(isAutoReplyEnabled({ settings: { autoReply: true } }), true);
+assert.equal(isAutoReplyEnabled({ settings: { autoReply: false } }), false);
+assert.equal(isAutoReplyEnabled({ settings: {} }), false);
 
 const zapiCredentialsFromNestedDoc = zapiCredentials({
   credentials: {

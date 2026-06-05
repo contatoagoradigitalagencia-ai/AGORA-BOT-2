@@ -45,6 +45,30 @@ export function buildAccountLookup(event) {
   };
 }
 
+function eventStatus(event) {
+  return String(event.status || event.raw?.status || event.raw?.messageStatus || '').toUpperCase();
+}
+
+export function shouldIgnoreEvent(event) {
+  const rawType = String(event.raw?.type || event.type || '').toLowerCase();
+  const status = eventStatus(event);
+  const isStatusCallback = event.event === 'message.status' || rawType === 'messagestatuscallback';
+
+  if (isStatusCallback) return { ignored: true, reason: 'status_event' };
+  if (event.fromMe === true || event.raw?.fromMe === true) return { ignored: true, reason: 'from_me' };
+  if (event.fromApi === true || event.raw?.fromApi === true) return { ignored: true, reason: 'from_api' };
+  if (event.direction === 'outbound') return { ignored: true, reason: 'outbound' };
+  if (event.event !== 'message.received' && ['SENT', 'RECEIVED', 'READ'].includes(status)) {
+    return { ignored: true, reason: 'delivery_status' };
+  }
+
+  return { ignored: false, reason: '' };
+}
+
+export function isAutoReplyEnabled(account) {
+  return account?.settings?.autoReply === true;
+}
+
 async function findAccount(event) {
   const { provider, accountExternalId, query } = buildAccountLookup(event);
   console.log({
@@ -65,6 +89,15 @@ async function findAccount(event) {
     status: account?.status,
   });
   return account;
+}
+
+async function findExistingMessage(account, event) {
+  if (!event.providerMessageId) return null;
+  return Message.findOne({
+    whatsappAccountId: account._id,
+    provider: event.provider,
+    providerMessageId: event.providerMessageId,
+  }).lean();
 }
 
 async function upsertContact(account, event) {
@@ -132,7 +165,11 @@ async function upsertConversation(account, contact, event) {
 }
 
 async function saveMessage(account, contact, conversation, event, extra = {}) {
-  const filter = { provider: event.provider, providerMessageId: event.providerMessageId };
+  const filter = {
+    whatsappAccountId: account._id,
+    provider: event.provider,
+    providerMessageId: event.providerMessageId,
+  };
   const update = {
     $setOnInsert: {
       organizationId: account.organizationId,
@@ -204,31 +241,31 @@ export async function processNormalizedEvent(event, io) {
     return { ignored: true, reason: 'account_not_found' };
   }
 
-  if (event.event === 'message.status') {
-    console.log('[Ingestion] status event before update', {
-      event,
-      providerMessageId: event.providerMessageId,
-    });
-    await Message.updateOne(
-      { provider: event.provider, providerMessageId: event.providerMessageId },
-      { status: event.status || 'delivered', raw: event.raw || {} },
-    );
-    console.log('[Ingestion] status event after update', {
-      event,
-      providerMessageId: event.providerMessageId,
-      status: event.status || 'delivered',
-    });
-    await persistMetric(account.organizationId, 'message.status', { provider: event.provider, status: event.status });
-    return { ok: true, type: 'status' };
-  }
-
-  if (event.direction !== 'inbound') {
+  const ignore = shouldIgnoreEvent(event);
+  if (ignore.ignored) {
     console.log('[Ingestion] event ignored before persistence', {
       event,
-      reason: 'not_inbound',
+      reason: ignore.reason,
       direction: event.direction,
+      status: eventStatus(event),
     });
-    return { ignored: true, reason: 'not_inbound' };
+    return { ok: true, ignored: true, reason: ignore.reason };
+  }
+
+  const existingMessage = await findExistingMessage(account, event);
+  if (existingMessage) {
+    console.log('[Ingestion] duplicate providerMessageId ignored', {
+      event,
+      messageId: existingMessage._id,
+      providerMessageId: event.providerMessageId,
+      aiGenerated: existingMessage.aiGenerated,
+    });
+    return {
+      ok: true,
+      duplicate: true,
+      messageId: existingMessage._id,
+      providerMessageId: event.providerMessageId,
+    };
   }
 
   try {
@@ -250,6 +287,24 @@ export async function processNormalizedEvent(event, io) {
     await persistMetric(account.organizationId, 'message.received', { provider: event.provider, type: event.type });
 
     io?.to(String(account.organizationId)).emit('message:received', { conversationId: conversation._id, messageId: inbound._id });
+
+    if (!isAutoReplyEnabled(account)) {
+      console.log('[Ingestion] autoReply paused, message saved without AI response', {
+        event,
+        accountId: account?._id,
+        contactId: contact?._id,
+        conversationId: conversation?._id,
+        messageId: inbound?._id,
+        autoReply: account?.settings?.autoReply,
+      });
+      return {
+        ok: true,
+        paused: true,
+        contactId: contact._id,
+        conversationId: conversation._id,
+        messageId: inbound._id,
+      };
+    }
 
     const config = await getBotConfig(account.organizationId, account._id);
     if (shouldSendToHuman(event.text, config)) {

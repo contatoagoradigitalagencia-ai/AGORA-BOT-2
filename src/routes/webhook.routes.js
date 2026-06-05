@@ -45,14 +45,23 @@ export function webhookRoutes(io) {
         count: events.length,
         normalizedEvent: events,
       });
+      const results = [];
       for (const event of events) {
         const result = await processNormalizedEvent(event, io);
+        results.push(result);
         console.log('[Z-API webhook] ingestion result', {
           event,
           result,
         });
       }
-      return res.json({ received: true, events: events.length });
+      const paused = results.some((result) => result?.paused === true);
+      return res.json({
+        ok: true,
+        paused,
+        received: true,
+        events: events.length,
+        results,
+      });
     } catch (error) {
       console.log('[Z-API webhook] exception', {
         message: error instanceof Error ? error.message : String(error),

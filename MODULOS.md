@@ -23,6 +23,8 @@ Credenciais por conta ficam em `whatsapp_accounts` (tokens criptografados).
 
 - Normaliza eventos dos providers.
 - Persiste em `contacts`, `conversations`, `messages` no banco **`Agorabot2`**.
+- Ignora eventos de status, mensagens `fromMe`, `fromApi`, outbound e duplicidade por `providerMessageId`.
+- Respeita `whatsapp_accounts.settings.autoReply`: se estiver `false`, salva a mensagem inbound e encerra sem IA e sem resposta.
 - Dispara fluxo de bot e fila humana quando aplicável.
 
 ## Bot (`src/services/bot`)

@@ -44,6 +44,18 @@ function scopedQuery(req) {
   return { organizationId: req.organizationId };
 }
 
+async function getPrimaryWhatsAppAccount(req) {
+  return WhatsAppAccount.findOne(scopedQuery(req)).sort({ createdAt: 1 });
+}
+
+function cleanObject(payload, allowedFields) {
+  return Object.fromEntries(
+    allowedFields
+      .filter((field) => Object.prototype.hasOwnProperty.call(payload, field))
+      .map((field) => [field, payload[field]]),
+  );
+}
+
 export function internalRoutes() {
   const router = Router();
   router.use('/api/v1', requireAuth);
@@ -94,6 +106,75 @@ export function internalRoutes() {
     const provider = getWhatsAppProvider(account.toObject());
     const result = await provider.sendText(req.body.to, req.body.text);
     res.json({ data: result });
+  });
+
+  router.patch('/api/v1/whatsapp-accounts/:id/settings', requireOrganization, async (req, res) => {
+    const account = await WhatsAppAccount.findOne({ _id: req.params.id, organizationId: req.organizationId });
+    if (!account) return res.status(404).json({ error: 'WhatsApp account not found' });
+
+    const settingsPatch = req.body?.settings && typeof req.body.settings === 'object'
+      ? req.body.settings
+      : req.body;
+
+    const data = await WhatsAppAccount.findOneAndUpdate(
+      { _id: req.params.id, organizationId: req.organizationId },
+      { $set: { settings: { ...(account.settings || {}), ...settingsPatch } } },
+      { new: true },
+    ).lean();
+
+    res.json({ data: publicAccount(data) });
+  });
+
+  router.get('/api/v1/bot-config', requireOrganization, async (req, res) => {
+    const accounts = await WhatsAppAccount.find(scopedQuery(req)).sort({ createdAt: 1 }).lean();
+    const account = accounts[0] || null;
+    const config = account
+      ? await BotConfig.findOne({ organizationId: req.organizationId, whatsappAccountId: account._id }).lean()
+      : null;
+    const prompts = await Prompt.find(scopedQuery(req)).sort({ createdAt: -1 }).lean();
+    const prompt = config?.promptId
+      ? prompts.find((item) => String(item._id) === String(config.promptId)) || null
+      : prompts.find((item) => item.active && item.type === 'bot') || null;
+
+    res.json({
+      data: {
+        account: account ? publicAccount(account) : null,
+        config,
+        prompt,
+        prompts,
+      },
+    });
+  });
+
+  router.patch('/api/v1/bot-config', requireOrganization, async (req, res) => {
+    const account = req.body?.whatsappAccountId
+      ? await WhatsAppAccount.findOne({ _id: req.body.whatsappAccountId, organizationId: req.organizationId })
+      : await getPrimaryWhatsAppAccount(req);
+    if (!account) return res.status(404).json({ error: 'WhatsApp account not found' });
+
+    const payload = cleanObject(req.body || {}, [
+      'aiEnabled',
+      'catalogEnabled',
+      'humanHandoffEnabled',
+      'humanHandoffKeywords',
+      'fallbackMessage',
+      'promptId',
+      'settings',
+    ]);
+
+    const data = await BotConfig.findOneAndUpdate(
+      { organizationId: req.organizationId, whatsappAccountId: account._id },
+      {
+        $set: payload,
+        $setOnInsert: {
+          organizationId: req.organizationId,
+          whatsappAccountId: account._id,
+        },
+      },
+      { new: true, upsert: true },
+    );
+
+    res.json({ data });
   });
 
   for (const [path, Model] of Object.entries(models)) {

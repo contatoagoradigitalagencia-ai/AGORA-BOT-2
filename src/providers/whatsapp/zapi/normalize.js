@@ -64,6 +64,8 @@ export function normalizeZapiWebhook(payload) {
     contactName: payload.senderName || payload.name || '',
     timestamp: pickTimestamp(payload),
     direction: payload.fromMe ? 'outbound' : 'inbound',
+    fromMe: Boolean(payload.fromMe),
+    fromApi: Boolean(payload.fromApi),
     type,
     text: type === 'text' ? pickText(payload) : '',
     media: pickMedia(payload, type),
