@@ -861,5 +861,85 @@ export function internalRoutes() {
     }
   });
 
+
+  // ── Envio de mídia pelo atendente ────────────────────────────────────────
+  router.post('/api/v1/conversations/:id/messages/media', requireOrganization, async (req, res) => {
+    try {
+      const { uploadToR2 } = await import('../services/storage/r2-storage.service.js');
+
+      const conversation = await Conversation.findOne({ _id: req.params.id }).lean();
+      if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
+
+      const contact = await Contact.findById(conversation.contactId).lean();
+      if (!contact) return res.status(404).json({ error: 'Contact not found' });
+
+      const account = await WhatsAppAccount.findById(conversation.whatsappAccountId)
+        .select('+credentials +accessTokenEncrypted +clientTokenEncrypted');
+      if (!account) return res.status(404).json({ error: 'WhatsApp account not found' });
+
+      // Parse multipart — espera campo 'file' (base64 ou buffer via JSON simples)
+      const { fileBase64, mimeType, fileName, type, caption, replyToMessageId } = req.body;
+      if (!fileBase64 || !mimeType) return res.status(400).json({ error: 'fileBase64 e mimeType obrigatórios' });
+
+      const buffer = Buffer.from(fileBase64, 'base64');
+      const msgIdTemp = new (await import('mongoose')).default.Types.ObjectId();
+
+      const r2Result = await uploadToR2({
+        organizationId: conversation.organizationId,
+        conversationId: conversation._id,
+        messageId:      String(msgIdTemp),
+        buffer,
+        mimeType,
+        fileName:       fileName || 'media',
+        type:           type || 'document',
+      });
+
+      if (!r2Result) return res.status(500).json({ error: 'Falha no upload para R2' });
+
+      // Envia via provider
+      const { getWhatsAppProvider } = await import('../providers/whatsapp/index.js');
+      const provider = getWhatsAppProvider(account.toObject());
+      let sendResult;
+      const mediaType = type || 'document';
+      const url = r2Result.url;
+
+      try {
+        if (mediaType === 'image')    sendResult = await provider.sendImage(contact.phone, { link: url, caption });
+        else if (mediaType === 'audio') sendResult = await provider.sendAudio(contact.phone, { link: url });
+        else                           sendResult = await provider.sendDocument(contact.phone, { link: url, filename: fileName });
+      } catch (sendErr) {
+        console.error('[Media] send error:', sendErr.message);
+        return res.status(502).json({ error: 'Erro ao enviar pelo WhatsApp: ' + sendErr.message });
+      }
+
+      const msg = await Message.create({
+        organizationId:    conversation.organizationId,
+        whatsappAccountId: account._id,
+        contactId:         contact._id,
+        conversationId:    conversation._id,
+        provider:          account.provider,
+        providerMessageId: sendResult?.messageId || sendResult?.messages?.[0]?.id || ('out-' + Date.now()),
+        direction:         'outbound',
+        type:              mediaType,
+        text:              caption || '',
+        media:             { ...r2Result, caption },
+        status:            'sent',
+        aiGenerated:       false,
+        source:            'human',
+        occurredAt:        new Date(),
+        replyToMessageId:  replyToMessageId || null,
+      });
+
+      await Conversation.updateOne(
+        { _id: conversation._id },
+        { $set: { lastMessageAt: new Date(), lastMessagePreview: caption || '[mídia]' } }
+      );
+
+      res.status(201).json({ data: msg });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   return router;
 }

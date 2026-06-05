@@ -8,14 +8,65 @@ function pickType(payload) {
   if (payload.audio || payload.audioUrl) return 'audio';
   if (payload.document || payload.documentUrl) return 'document';
   if (payload.video || payload.videoUrl) return 'video';
+  if (payload.sticker || payload.stickerUrl) return 'sticker';
   return 'unknown';
 }
 
 function pickMedia(payload, type) {
-  if (type === 'image') return payload.image || { link: payload.imageUrl };
-  if (type === 'audio') return payload.audio || { link: payload.audioUrl };
-  if (type === 'document') return payload.document || { link: payload.documentUrl, filename: payload.fileName };
-  if (type === 'video') return payload.video || { link: payload.videoUrl };
+  // Extrai URL de todos os possíveis formatos da Z-API
+  function extractUrl(obj) {
+    return obj?.url || obj?.link || obj?.mediaUrl || obj?.imageUrl
+      || obj?.audioUrl || obj?.documentUrl || obj?.videoUrl || obj?.stickerUrl || null;
+  }
+
+  if (type === 'image') {
+    const obj = payload.image || {};
+    return {
+      url:      extractUrl(obj) || extractUrl(payload),
+      link:     obj.link || payload.imageUrl || null,
+      mimeType: obj.mimeType || obj.mimetype || 'image/jpeg',
+      caption:  obj.caption || payload.caption || pickText(payload) || '',
+      fileName: obj.fileName || obj.filename || null,
+    };
+  }
+  if (type === 'audio') {
+    const obj = payload.audio || {};
+    return {
+      url:      extractUrl(obj) || extractUrl(payload),
+      link:     obj.link || payload.audioUrl || null,
+      mimeType: obj.mimeType || obj.mimetype || 'audio/ogg',
+      duration: obj.duration || obj.seconds || null,
+      voice:    obj.voice === true,
+      fileName: obj.fileName || obj.filename || null,
+    };
+  }
+  if (type === 'document') {
+    const obj = payload.document || {};
+    return {
+      url:      extractUrl(obj) || extractUrl(payload),
+      link:     obj.link || payload.documentUrl || null,
+      mimeType: obj.mimeType || obj.mimetype || 'application/octet-stream',
+      fileName: obj.fileName || obj.filename || payload.fileName || 'documento',
+      caption:  obj.caption || payload.caption || '',
+    };
+  }
+  if (type === 'video') {
+    const obj = payload.video || {};
+    return {
+      url:      extractUrl(obj) || extractUrl(payload),
+      link:     obj.link || payload.videoUrl || null,
+      mimeType: obj.mimeType || obj.mimetype || 'video/mp4',
+      caption:  obj.caption || payload.caption || '',
+      fileName: obj.fileName || obj.filename || null,
+    };
+  }
+  if (type === 'sticker') {
+    const obj = payload.sticker || {};
+    return {
+      url:      extractUrl(obj) || payload.stickerUrl || null,
+      mimeType: obj.mimeType || 'image/webp',
+    };
+  }
   return {};
 }
 
@@ -139,7 +190,7 @@ export function normalizeZapiWebhook(payload) {
     fromMe: Boolean(payload.fromMe),
     fromApi: Boolean(payload.fromApi),
     type,
-    text: type === 'text' ? pickText(payload) : '',
+    text: type === 'text' ? pickText(payload) : (payload.image?.caption || payload.document?.caption || payload.video?.caption || payload.caption || ''),
     media: pickMedia(payload, type),
     // Grupo
     isGroup:       groupInfo.isGroup,

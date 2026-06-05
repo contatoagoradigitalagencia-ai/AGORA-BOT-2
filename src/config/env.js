@@ -25,6 +25,15 @@ export const env = {
   metaGraphVersion: process.env.META_GRAPH_VERSION || 'v22.0',
   zapiBaseUrl: process.env.ZAPI_BASE_URL || 'https://api.z-api.io',
   zapiClientToken: process.env.ZAPI_CLIENT_TOKEN || '',
+  // Cloudflare R2
+  r2AccountId:   process.env.CLOUDFLARE_R2_ACCOUNT_ID  || '',
+  r2AccessKey:   process.env.CLOUDFLARE_R2_ACCESS_KEY   || '',
+  r2SecretKey:   process.env.CLOUDFLARE_R2_SECRET_KEY   || '',
+  r2Bucket:      process.env.CLOUDFLARE_R2_BUCKET        || '',
+  r2Endpoint:    process.env.CLOUDFLARE_R2_ENDPOINT      || '',
+  r2PublicUrl:   process.env.CLOUDFLARE_R2_PUBLIC_URL    || process.env.CLOUDFLARE_R2_URL_PUBLIC || '',
+  // Media limits
+  mediaMaxBytes: Number(process.env.MEDIA_MAX_BYTES || 20 * 1024 * 1024), // 20MB
 };
 
 export function assertRuntimeEnv() {

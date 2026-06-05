@@ -11,6 +11,8 @@ import { decryptSecret } from '../security/crypto.js';
 import { getWhatsAppProvider } from '../../providers/whatsapp/index.js';
 import { generateBotAnswer, getBotConfig, shouldSendToHuman } from '../bot/bot-response.service.js';
 import { canSendFreeformMessage } from '../messaging/send-window.js';
+import { downloadProviderMedia } from '../media/media-download.service.js';
+import { uploadToR2, r2Configured } from '../storage/r2-storage.service.js';
 import { safeError, safeLog } from '../logging/logger.js';
 
 export function buildAccountLookup(event) {
@@ -182,13 +184,70 @@ async function saveMessage(account, contact, conversation, event, extra = {}) {
       direction: event.direction || 'inbound',
       type: event.type || 'unknown',
       text: event.text || '',
-      media: event.media || {},
+      media: event.media || {},   // será sobrescrito abaixo se R2 configurado
       status: event.status || 'received',
       raw: event.raw || {},
       occurredAt: event.timestamp || new Date(),
       ...extra,
     },
   };
+  // ── Media: download + R2 upload ─────────────────────────────────────────
+  const hasMedia = event.type && event.type !== 'text' && event.type !== 'unknown'
+    && event.media && Object.keys(event.media).length > 0;
+
+  if (hasMedia && r2Configured()) {
+    try {
+      console.log('[Media] normalized type:', event.type, 'starting download');
+      const downloaded = await downloadProviderMedia({
+        provider: event.provider,
+        account,
+        media: event.media,
+        raw:   event.raw,
+      });
+
+      if (downloaded) {
+        const r2Result = await uploadToR2({
+          organizationId: account.organizationId,
+          conversationId: conversation._id,
+          messageId:      'pending', // será substituído após upsert
+          buffer:         downloaded.buffer,
+          mimeType:       downloaded.mimeType,
+          fileName:       downloaded.fileName,
+          type:           event.type,
+        });
+
+        if (r2Result) {
+          update.$setOnInsert.media = {
+            ...r2Result,
+            caption:  event.media.caption || event.text || '',
+            duration: event.media.duration || null,
+            status:   'uploaded',
+          };
+          console.log('[Media] uploaded to R2:', r2Result.url);
+        } else {
+          update.$setOnInsert.media = {
+            ...event.media,
+            providerUrl: event.media.link || event.media.url || '',
+            status: 'upload_failed',
+          };
+        }
+      } else {
+        update.$setOnInsert.media = { ...event.media, status: 'download_failed' };
+      }
+    } catch (mediaErr) {
+      console.error('[Media] pipeline error:', mediaErr.message);
+      update.$setOnInsert.media = { ...event.media, status: 'error', error: mediaErr.message };
+    }
+  } else if (hasMedia) {
+    // R2 não configurado: salva URL do provedor como fallback
+    update.$setOnInsert.media = {
+      ...event.media,
+      providerUrl: event.media.link || event.media.url || '',
+      storage:     'provider',
+      status:      'no_r2',
+    };
+  }
+
   console.log('[Ingestion] before message upsert', {
     event,
     contactId: contact?._id,
