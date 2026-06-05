@@ -353,7 +353,16 @@ export async function processNormalizedEvent(event, io) {
     }
 
     // ── Bloquear newsletters ─────────────────────────────────────────────────
-    if (event.raw?.isNewsletter || String(event.from || '').includes('@newsletter')) {
+    // Checa tanto event.from (sender) quanto raw.phone (grupo/canal) quanto raw.chatId
+    const isNewsletter = event.raw?.isNewsletter === true
+      || String(event.from   || '').includes('@newsletter')
+      || String(event.sender || '').includes('@newsletter')
+      || String(event.raw?.phone  || '').includes('@newsletter')
+      || String(event.raw?.chatId || '').includes('@newsletter')
+      || String(event.groupId || '').includes('@newsletter');
+
+    if (isNewsletter) {
+      console.log('[Ingestion] newsletter blocked — no AI response', { from: event.from, phone: event.raw?.phone });
       return { ok: true, skipped: 'newsletter', conversationId: conversation?._id };
     }
 

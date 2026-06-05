@@ -14,29 +14,46 @@ function toObjId(id) {
  * Frontend legado espera: { wamid, direction, timestamp, status, data: { type, text: { body } } }
  */
 function normalizeMessage(msg, contact) {
-  const id = String(msg._id);
+  const id   = String(msg._id);
+  const type = msg.type || 'text';
+  const media = (msg.media && Object.keys(msg.media).length > 0) ? msg.media : null;
+
+  // Monta o objeto data no formato que os componentes do frontend esperam
+  // Cada tipo tem sua propriedade: data.image, data.audio, data.video, data.document
+  const dataMedia = {};
+  if (media && type !== 'text') {
+    const mediaObj = {
+      url:      media.url || media.link || media.providerUrl || null,
+      link:     media.link || media.url || null,
+      mimeType: media.mimeType || null,
+      fileName: media.fileName || null,
+      caption:  media.caption  || msg.text || '',
+      duration: media.duration || null,
+      size:     media.size     || null,
+    };
+    dataMedia[type] = mediaObj; // data.image, data.audio, etc.
+  }
+
   return {
-    // campos de identidade
     wamid:       msg.providerMessageId || id,
     _id:         id,
     id,
-    // remetente
+    type,
     phone:       contact?.phone || '',
     name:        contact?.name  || contact?.phone || '',
-    // direção e tempo
     direction:   msg.direction  || 'inbound',
     timestamp:   msg.occurredAt || msg.createdAt,
     status:      msg.status     || 'received',
     aiGenerated: msg.aiGenerated || false,
-    // reply
     replyToMessageId: msg.replyToMessageId || null,
     replyToPreview:   msg.replyToPreview   || null,
-    // data — formato que o frontend usa para renderizar
+    // media separado para acesso direto: message.media.url
+    media: media || {},
+    // data no formato do frontend: message.data.image.url, message.data.audio.url
     data: {
-      type: msg.type || 'text',
+      type,
       text: { body: msg.text || '' },
-      // outros tipos de mídia ficam no objeto media
-      ...(msg.media && Object.keys(msg.media).length > 0 ? msg.media : {}),
+      ...dataMedia,
     },
   };
 }
