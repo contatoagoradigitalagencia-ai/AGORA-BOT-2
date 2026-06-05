@@ -13,11 +13,13 @@ const userSchema = new mongoose.Schema({
   passwordHash: { type: String, required: true, select: false },
   role: {
     type: String,
-    enum: ['owner', 'admin', 'manager', 'agent', 'viewer'],
+    enum: ['owner', 'admin', 'manager', 'agent', 'seller', 'viewer'],
     default: 'agent',
     index: true,
   },
-  active: { type: Boolean, default: true, index: true },
+  active:     { type: Boolean, default: true, index: true },
+  avatarUrl:  { type: String, default: '' },
+  department: { type: String, default: '' },
 }, {
   timestamps: true,
   collection: 'users',

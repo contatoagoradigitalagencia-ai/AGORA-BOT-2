@@ -82,15 +82,81 @@ export function internalRoutes() {
     res.status(201).json({ data: organization });
   });
 
-  router.post('/api/v1/users', async (req, res) => {
-    const { password, phone, ...rest } = req.body;
-    if (!password || !phone) {
-      return res.status(400).json({ error: 'phone and password are required' });
+  // ── Equipe / Usuários ────────────────────────────────────────────────────────
+
+  function publicUser(u) {
+    const obj = u.toObject ? u.toObject() : { ...u };
+    delete obj.passwordHash;
+    if (obj._id) obj.id = String(obj._id);
+    return obj;
+  }
+
+  // GET — lista membros da equipe (filtrado por org)
+  router.get('/api/v1/users', requireAuth, requireOrganization, async (req, res) => {
+    const filter = { organizationId: toObjectId(req.organizationId) };
+    if (req.query.active !== undefined) filter.active = req.query.active !== 'false';
+    if (req.query.role) filter.role = { $in: req.query.role.split(',') };
+    const users = await User.find(filter).sort({ name: 1 }).lean();
+    res.json({ data: users.map(u => { delete u.passwordHash; if (u._id) u.id = String(u._id); return u; }) });
+  });
+
+  // POST — cria novo membro (só admin/owner)
+  router.post('/api/v1/users', requireAuth, requireOrganization, async (req, res) => {
+    const { password, phone, name, email, role, department, avatarUrl, active } = req.body;
+    if (!phone || !name) {
+      return res.status(400).json({ error: 'name e phone são obrigatórios' });
     }
-    const passwordHash = await bcrypt.hash(password, 12);
     const normalizedPhone = String(phone).replace(/\D/g, '');
-    const user = await User.create({ ...rest, phone: normalizedPhone, passwordHash });
-    res.status(201).json({ data: { ...user.toObject(), passwordHash: undefined } });
+    // Senha: usa informada ou gera temporária
+    const plainPassword = password || Math.random().toString(36).slice(-8);
+    const passwordHash = await bcrypt.hash(plainPassword, 12);
+    const user = await User.create({
+      organizationId: toObjectId(req.organizationId),
+      name: String(name).trim(),
+      phone: normalizedPhone,
+      email: email || \`\${normalizedPhone}@sem-email.local\`,
+      role: role || 'agent',
+      department: department || '',
+      avatarUrl: avatarUrl || '',
+      active: active !== false,
+      passwordHash,
+    });
+    const data = publicUser(user);
+    if (!password) data._tempPassword = plainPassword; // retorna senha temp se não foi informada
+    res.status(201).json({ data });
+  });
+
+  // PATCH — edita membro
+  router.patch('/api/v1/users/:id', requireAuth, requireOrganization, async (req, res) => {
+    const { password, phone, name, email, role, department, avatarUrl, active } = req.body;
+    const update = {};
+    if (name !== undefined)       update.name       = String(name).trim();
+    if (phone !== undefined)      update.phone      = String(phone).replace(/\D/g, '');
+    if (email !== undefined)      update.email      = email;
+    if (role !== undefined)       update.role       = role;
+    if (department !== undefined) update.department = department;
+    if (avatarUrl !== undefined)  update.avatarUrl  = avatarUrl;
+    if (active !== undefined)     update.active     = Boolean(active);
+    if (password)                 update.passwordHash = await bcrypt.hash(password, 12);
+
+    const user = await User.findOneAndUpdate(
+      { _id: req.params.id, organizationId: toObjectId(req.organizationId) },
+      { $set: update },
+      { new: true },
+    );
+    if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
+    res.json({ data: publicUser(user) });
+  });
+
+  // DELETE — desativa (soft delete)
+  router.delete('/api/v1/users/:id', requireAuth, requireOrganization, async (req, res) => {
+    const user = await User.findOneAndUpdate(
+      { _id: req.params.id, organizationId: toObjectId(req.organizationId) },
+      { $set: { active: false } },
+      { new: true },
+    );
+    if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
+    res.json({ data: { deleted: true, id: req.params.id } });
   });
 
   router.get('/api/v1/whatsapp-accounts', requireOrganization, async (req, res) => {
