@@ -37,10 +37,23 @@ async function fetchWithTimeout(url, options = {}) {
  * Se não, usa o endpoint de download autenticado.
  */
 function extractZapiMediaUrl(media, raw, account) {
-  const direct = media?.link || media?.url || media?.mediaUrl
-    || raw?.image?.imageUrl || raw?.audio?.audioUrl
-    || raw?.document?.documentUrl || raw?.video?.videoUrl
-    || raw?.sticker?.stickerUrl;
+  function pickUrl(obj) {
+    if (!obj) return null;
+    if (typeof obj === 'string') return obj;
+    return obj.url || obj.link || obj.providerUrl || obj.mediaUrl || obj.fileUrl
+      || obj.imageUrl || obj.videoUrl || obj.audioUrl || obj.documentUrl
+      || obj.stickerUrl || obj.gifUrl || obj.thumbnailUrl || null;
+  }
+
+  const direct = pickUrl(media)
+    || pickUrl(raw?.image)
+    || pickUrl(raw?.video)
+    || pickUrl(raw?.gif)
+    || pickUrl(raw?.audio)
+    || pickUrl(raw?.document)
+    || pickUrl(raw?.sticker)
+    || pickUrl(raw?.media)
+    || pickUrl(raw);
   if (direct) return direct;
 
   // Fallback: endpoint autenticado da Z-API
@@ -78,7 +91,14 @@ export async function downloadProviderMedia({ provider, account, media, raw }) {
 
     if (provider === 'zapi') {
       downloadUrl = extractZapiMediaUrl(media, raw, account?.toObject ? account.toObject() : account);
-      console.log('[Media] Z-API download URL:', downloadUrl ? downloadUrl.slice(0, 80) : 'not found');
+      console.log('[MEDIA PIPELINE]', {
+        provider,
+        messageType: raw?.type || raw?.messageType || media?.type || 'media',
+        hasProviderUrl: Boolean(downloadUrl),
+        mimeType: media?.mimeType || media?.mimetype || raw?.mimeType || raw?.mimetype || null,
+        fileName: media?.fileName || media?.filename || raw?.fileName || raw?.filename || null,
+        step: 'download_url_resolved',
+      });
     } else if (provider === 'meta') {
       const mediaId = media?.id || raw?.image?.id || raw?.audio?.id || raw?.document?.id;
       const token   = account?.credentials?.accessToken || process.env.META_ACCESS_TOKEN;
@@ -93,7 +113,7 @@ export async function downloadProviderMedia({ provider, account, media, raw }) {
     const res = await fetchWithTimeout(downloadUrl, { headers: authHeaders });
     if (!res.ok) throw new Error(`Download failed: ${res.status}`);
 
-    const contentType  = res.headers.get('content-type') || 'application/octet-stream';
+    const contentType  = res.headers.get('content-type') || media?.mimeType || media?.mimetype || 'application/octet-stream';
     const mimeType     = contentType.split(';')[0].trim();
     const contentLength = parseInt(res.headers.get('content-length') || '0');
 
@@ -111,10 +131,20 @@ export async function downloadProviderMedia({ provider, account, media, raw }) {
       || (fileNameMatch ? fileNameMatch[1].replace(/['"]/g, '') : null)
       || `media-${Date.now()}.${ext}`;
 
-    console.log('[Media] downloaded:', fileName, buffer.length, 'bytes', mimeType);
+    console.log('[MEDIA PIPELINE]', {
+      downloaded: true,
+      fileName,
+      size: buffer.length,
+      mimeType,
+      step: 'download_complete',
+    });
     return { buffer, mimeType, fileName, size: buffer.length };
   } catch (err) {
-    console.error('[Media] download failed:', err.message);
+    console.error('[MEDIA PIPELINE]', {
+      downloaded: false,
+      error: err.message,
+      step: 'download_failed',
+    });
     return null;
   }
 }

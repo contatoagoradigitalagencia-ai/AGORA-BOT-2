@@ -25,6 +25,48 @@ assert.equal(zapi.length, 1);
 assert.equal(zapi[0].provider, 'zapi');
 assert.equal(zapi[0].text, 'Olá');
 
+const zapiImageWithCaption = normalizeZapiWebhook({
+  instanceId: 'inst1',
+  phone: '5511777777777',
+  messageId: 'img1',
+  fromMe: false,
+  image: { url: 'https://media.example.com/image.jpg', mimeType: 'image/jpeg', caption: 'Legenda da imagem' },
+  text: { message: 'Legenda da imagem' },
+});
+assert.equal(zapiImageWithCaption.length, 1);
+assert.equal(zapiImageWithCaption[0].type, 'image');
+assert.equal(zapiImageWithCaption[0].text, 'Legenda da imagem');
+assert.equal(zapiImageWithCaption[0].media.url, 'https://media.example.com/image.jpg');
+assert.equal(zapiImageWithCaption[0].media.providerUrl, 'https://media.example.com/image.jpg');
+assert.equal(zapiImageWithCaption[0].media.mimeType, 'image/jpeg');
+
+const zapiVideoWithCaption = normalizeZapiWebhook({
+  instanceId: 'inst1',
+  phone: '5511777777777',
+  messageId: 'vid1',
+  fromMe: false,
+  video: { videoUrl: 'https://media.example.com/video.mp4', mimetype: 'video/mp4' },
+  text: { message: 'Legenda do video' },
+});
+assert.equal(zapiVideoWithCaption.length, 1);
+assert.equal(zapiVideoWithCaption[0].type, 'video');
+assert.equal(zapiVideoWithCaption[0].text, 'Legenda do video');
+assert.equal(zapiVideoWithCaption[0].media.url, 'https://media.example.com/video.mp4');
+assert.equal(zapiVideoWithCaption[0].media.mimeType, 'video/mp4');
+
+const zapiGifAsMedia = normalizeZapiWebhook({
+  instanceId: 'inst1',
+  phone: '5511777777777',
+  messageId: 'gif1',
+  fromMe: false,
+  mediaUrl: 'https://media.example.com/anim.gif',
+  mimeType: 'image/gif',
+});
+assert.equal(zapiGifAsMedia.length, 1);
+assert.equal(zapiGifAsMedia[0].type, 'video');
+assert.equal(zapiGifAsMedia[0].media.isGif, true);
+assert.equal(zapiGifAsMedia[0].media.url, 'https://media.example.com/anim.gif');
+
 const zapiReceivedCallback = normalizeZapiWebhook({
   instanceId: '3F36F171852222FE9A0BCE87272212BE',
   type: 'ReceivedCallback',

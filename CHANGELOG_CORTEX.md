@@ -2,6 +2,33 @@
 
 > Nome do arquivo mantido por compatibilidade documental. O Agora Bot 2 **não** está conectado ao Agora Cortex.
 
+## 2026-06-05 — Correção de imagem e vídeo Z-API
+
+### Módulos afetados
+
+`normalize.js`, `message-ingestion.service.js`, `media-download.service.js`, `socket/index.js`
+
+### Problema
+
+Imagem e vídeo com legenda podiam ser classificados como `text`, porque o normalizador verificava `payload.text` antes de `payload.image` e `payload.video`. Com isso o pipeline R2 não era acionado e o frontend recebia mídia sem URL renderizável.
+
+### Solução
+
+- Prioridade de detecção ajustada: imagem, áudio, documento, vídeo/GIF e sticker são detectados antes de texto.
+- Normalização de imagem e vídeo agora preserva `providerUrl`, `url`, `link`, `mimeType`, `fileName`, `caption`, `thumbnailUrl`, `duration` e `isGif`.
+- Downloader de mídia agora procura URL em `url`, `link`, `providerUrl`, `mediaUrl`, `fileUrl`, `imageUrl`, `videoUrl`, `gifUrl` e objetos `media`.
+- Socket passa a entregar `message.media.url` e `message.data.image/video.url` de forma consistente.
+- Logs de mídia não imprimem URLs completas por padrão; debug de payload bruto fica atrás de `MEDIA_DEBUG=true`.
+
+### Como testar
+
+```bash
+npm test
+npm run build
+```
+
+---
+
 ## 2026-06-04 — Rearquitetura Híbrida: Redução 80-95% de Tokens
 
 ### Módulos afetados

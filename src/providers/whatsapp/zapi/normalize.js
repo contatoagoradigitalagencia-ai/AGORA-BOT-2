@@ -3,71 +3,110 @@ function pickText(payload) {
 }
 
 function pickType(payload) {
-  if (payload.text || typeof payload.message === 'string' || payload.body) return 'text';
   if (payload.image || payload.imageUrl) return 'image';
   if (payload.audio || payload.audioUrl) return 'audio';
   if (payload.document || payload.documentUrl) return 'document';
   if (payload.video || payload.videoUrl) return 'video';
+  if (payload.gif || payload.gifUrl) return 'video';
   if (payload.sticker || payload.stickerUrl) return 'sticker';
+  if (payload.media || payload.mediaUrl || payload.fileUrl || payload.url) {
+    const mimeType = String(payload.mimeType || payload.mimetype || payload.media?.mimeType || payload.media?.mimetype || '').toLowerCase();
+    if (mimeType === 'image/gif') return 'video';
+    if (mimeType.startsWith('image/')) return 'image';
+    if (mimeType.startsWith('video/')) return 'video';
+    if (mimeType.startsWith('audio/')) return 'audio';
+  }
+  if (payload.text || typeof payload.message === 'string' || payload.body) return 'text';
   return 'unknown';
 }
 
 function pickMedia(payload, type) {
   // Extrai URL de todos os possíveis formatos da Z-API
   function extractUrl(obj) {
-    return obj?.url || obj?.link || obj?.mediaUrl || obj?.imageUrl
-      || obj?.audioUrl || obj?.documentUrl || obj?.videoUrl || obj?.stickerUrl || null;
+    if (!obj) return null;
+    if (typeof obj === 'string') return obj;
+    return obj.url || obj.link || obj.mediaUrl || obj.fileUrl || obj.imageUrl
+      || obj.thumbnailUrl || obj.audioUrl || obj.documentUrl || obj.videoUrl
+      || obj.stickerUrl || obj.gifUrl || null;
+  }
+
+  function commonMedia(obj = {}) {
+    return {
+      providerUrl: extractUrl(obj) || extractUrl(payload.media) || extractUrl(payload),
+      url: extractUrl(obj) || extractUrl(payload.media) || extractUrl(payload),
+      link: obj.link || obj.url || extractUrl(payload.media) || extractUrl(payload),
+      mimeType: obj.mimeType || obj.mimetype || payload.mimeType || payload.mimetype || payload.media?.mimeType || payload.media?.mimetype,
+      fileName: obj.fileName || obj.filename || payload.fileName || payload.filename || payload.media?.fileName || payload.media?.filename || null,
+      caption: obj.caption || payload.caption || payload.text?.message || payload.message?.text || '',
+      thumbnailUrl: obj.thumbnailUrl || payload.thumbnailUrl || null,
+    };
   }
 
   if (type === 'image') {
     const obj = payload.image || {};
+    const media = commonMedia(obj);
     return {
-      url:      extractUrl(obj) || extractUrl(payload),
-      link:     obj.link || payload.imageUrl || null,
-      mimeType: obj.mimeType || obj.mimetype || 'image/jpeg',
-      caption:  obj.caption || payload.caption || pickText(payload) || '',
-      fileName: obj.fileName || obj.filename || null,
+      ...media,
+      mimeType: media.mimeType || 'image/jpeg',
     };
   }
   if (type === 'audio') {
     const obj = payload.audio || {};
+    const media = commonMedia(obj);
     return {
-      url:      extractUrl(obj) || extractUrl(payload),
-      link:     obj.link || payload.audioUrl || null,
-      mimeType: obj.mimeType || obj.mimetype || 'audio/ogg',
+      ...media,
+      mimeType: media.mimeType || 'audio/ogg',
       duration: obj.duration || obj.seconds || null,
       voice:    obj.voice === true,
-      fileName: obj.fileName || obj.filename || null,
     };
   }
   if (type === 'document') {
     const obj = payload.document || {};
+    const media = commonMedia(obj);
     return {
-      url:      extractUrl(obj) || extractUrl(payload),
-      link:     obj.link || payload.documentUrl || null,
-      mimeType: obj.mimeType || obj.mimetype || 'application/octet-stream',
-      fileName: obj.fileName || obj.filename || payload.fileName || 'documento',
-      caption:  obj.caption || payload.caption || '',
+      ...media,
+      mimeType: media.mimeType || 'application/octet-stream',
+      fileName: media.fileName || 'documento',
     };
   }
   if (type === 'video') {
-    const obj = payload.video || {};
+    const obj = payload.video || payload.gif || {};
+    const media = commonMedia(obj);
+    const isGif = Boolean(obj.isGif || payload.isGif || payload.gif || payload.gifUrl || media.mimeType === 'image/gif');
     return {
-      url:      extractUrl(obj) || extractUrl(payload),
-      link:     obj.link || payload.videoUrl || null,
-      mimeType: obj.mimeType || obj.mimetype || 'video/mp4',
-      caption:  obj.caption || payload.caption || '',
-      fileName: obj.fileName || obj.filename || null,
+      ...media,
+      mimeType: media.mimeType || (isGif ? 'image/gif' : 'video/mp4'),
+      duration: obj.duration || obj.seconds || payload.duration || null,
+      isGif,
     };
   }
   if (type === 'sticker') {
     const obj = payload.sticker || {};
+    const media = commonMedia(obj);
     return {
-      url:      extractUrl(obj) || payload.stickerUrl || null,
-      mimeType: obj.mimeType || 'image/webp',
+      ...media,
+      mimeType: media.mimeType || 'image/webp',
     };
   }
   return {};
+}
+
+function debugZapiMediaPayload(payload, type) {
+  if (process.env.MEDIA_DEBUG !== 'true' || !['image', 'video'].includes(type)) return;
+  console.log('[ZAPI MEDIA RAW]', {
+    type,
+    messageId: payload.messageId || payload.id,
+    phone: payload.phone || payload.from || payload.senderPhone,
+    image: Boolean(payload.image || payload.imageUrl),
+    video: Boolean(payload.video || payload.videoUrl),
+    gif: Boolean(payload.gif || payload.gifUrl || payload.isGif),
+    document: Boolean(payload.document || payload.documentUrl),
+    audio: Boolean(payload.audio || payload.audioUrl),
+    media: Boolean(payload.media || payload.mediaUrl || payload.fileUrl || payload.url),
+    text: Boolean(payload.text || payload.message || payload.body),
+    caption: Boolean(payload.caption || payload.image?.caption || payload.video?.caption || payload.text?.message),
+    rawKeys: Object.keys(payload || {}),
+  });
 }
 
 function pickTimestamp(payload) {
@@ -161,6 +200,8 @@ export function normalizeZapiWebhook(payload) {
   if (!phone || !instanceId) return [];
 
   const type = pickType(payload);
+  debugZapiMediaPayload(payload, type);
+  const media = pickMedia(payload, type);
   const shouldTreatAsInboundMessage = isReceivedInboundCallback(payload) || (payload.fromMe === false && hasMessageContent(payload));
 
   if (!shouldTreatAsInboundMessage && (payload.status || payload.messageStatus)) {
@@ -190,8 +231,8 @@ export function normalizeZapiWebhook(payload) {
     fromMe: Boolean(payload.fromMe),
     fromApi: Boolean(payload.fromApi),
     type,
-    text: type === 'text' ? pickText(payload) : (payload.image?.caption || payload.document?.caption || payload.video?.caption || payload.caption || ''),
-    media: pickMedia(payload, type),
+    text: type === 'text' ? pickText(payload) : (media.caption || ''),
+    media,
     // Grupo
     isGroup:       groupInfo.isGroup,
     groupId:       groupInfo.groupId,

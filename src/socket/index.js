@@ -17,19 +17,23 @@ function normalizeMessage(msg, contact) {
   const id   = String(msg._id);
   const type = msg.type || 'text';
   const media = (msg.media && Object.keys(msg.media).length > 0) ? msg.media : null;
+  const mediaUrl = media?.url || media?.link || media?.providerUrl || null;
 
   // Monta o objeto data no formato que os componentes do frontend esperam
   // Cada tipo tem sua propriedade: data.image, data.audio, data.video, data.document
   const dataMedia = {};
   if (media && type !== 'text') {
     const mediaObj = {
-      url:      media.url || media.link || media.providerUrl || null,
-      link:     media.link || media.url || null,
+      url:      mediaUrl,
+      link:     media.link || media.url || media.providerUrl || null,
+      providerUrl: media.providerUrl || null,
       mimeType: media.mimeType || null,
       fileName: media.fileName || null,
       caption:  media.caption  || msg.text || '',
       duration: media.duration || null,
       size:     media.size     || null,
+      status:   media.status   || null,
+      isGif:    media.isGif    || false,
     };
     dataMedia[type] = mediaObj; // data.image, data.audio, etc.
   }
@@ -48,7 +52,7 @@ function normalizeMessage(msg, contact) {
     replyToMessageId: msg.replyToMessageId || null,
     replyToPreview:   msg.replyToPreview   || null,
     // media separado para acesso direto: message.media.url
-    media: media || {},
+    media: media ? { ...media, url: mediaUrl } : {},
     // data no formato do frontend: message.data.image.url, message.data.audio.url
     data: {
       type,
