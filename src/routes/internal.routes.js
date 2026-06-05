@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import {
@@ -32,16 +33,27 @@ const models = {
 };
 
 function publicAccount(account) {
-  const obj = account.toObject ? account.toObject() : account;
+  const obj = account.toObject ? account.toObject() : { ...account };
   delete obj.accessTokenEncrypted;
   delete obj.clientTokenEncrypted;
   delete obj.credentials;
   delete obj.webhookSecret;
+  delete obj.verifyToken;
+  // Garante que _id está presente como string (para frontend)
+  if (obj._id) obj.id = String(obj._id);
   return obj;
 }
 
+function toObjectId(id) {
+  try {
+    return mongoose.Types.ObjectId.isValid(id) ? new mongoose.Types.ObjectId(id) : id;
+  } catch {
+    return id;
+  }
+}
+
 function scopedQuery(req) {
-  return { organizationId: req.organizationId };
+  return { organizationId: toObjectId(req.organizationId) };
 }
 
 async function getPrimaryWhatsAppAccount(req) {
