@@ -70,6 +70,13 @@ Webhooks Meta/Z-API usam a conta ativa
 
 `client_integrations` é cadastro administrativo; `whatsapp_accounts` é execução real do bot. Essa separação evita misturar tokens no frontend e mantém compatibilidade com os webhooks validados.
 
+O painel Admin também consulta:
+
+- `metrics` para uso de IA e mensagens.
+- `logs/errors` para auditoria e falhas.
+- `bot_configs` para modelo, temperatura e limite diário.
+- `mongoose.connection`, envs de R2/Groq e contas WhatsApp para painel de saúde.
+
 ## Estrutura de pastas
 
 | Pasta | Responsabilidade |

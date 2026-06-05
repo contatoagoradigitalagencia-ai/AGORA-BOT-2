@@ -35,6 +35,10 @@ Rotas `/api/v1/admin/*` exigem papel `owner` ou `admin`. O frontend pode esconde
 
 Ao ativar uma integração, o backend copia credenciais criptografadas para `whatsapp_accounts`; o browser nunca recebe token Meta, Z-API, Groq, JWT secret ou chave de criptografia.
 
+Toda mutação administrativa relevante deve gerar log de auditoria em `logs` com usuário, ação, organização, data e IP. Falha ao gravar auditoria não deve vazar segredos nem derrubar a operação principal.
+
+Painel de saúde nunca retorna tokens ou segredos; apenas status operacional e detalhes não sensíveis.
+
 ## Logs
 
 O logger **não** deve registrar tokens, senhas ou chaves. Campos sensíveis são mascarados por nome.

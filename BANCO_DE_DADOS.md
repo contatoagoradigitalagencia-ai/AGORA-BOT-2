@@ -56,6 +56,22 @@ Entidades operacionais exigem `organizationId`:
 
 `messages` deduplica `providerMessageId` por `whatsappAccountId + provider`, evitando colisão entre contas diferentes usando o mesmo provider.
 
+## Auditoria administrativa
+
+Alterações administrativas gravam registros em `logs` com:
+
+- `context.type = "audit"`
+- `context.action`
+- `context.userId`
+- `context.userName`
+- `context.userRole`
+- `context.ip`
+- `context.module`
+- `context.provider` quando aplicável
+- `context.whatsappAccountId` quando aplicável
+
+Esses registros aparecem no painel Admin junto com `errors`, em formato normalizado.
+
 ## URI de conexão
 
 Exemplo (sem credenciais reais):

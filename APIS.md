@@ -135,9 +135,26 @@ Rotas exclusivas para `owner/admin`:
 - `DELETE /api/v1/admin/integrations/:id` (soft delete: inativa)
 - `POST /api/v1/admin/integrations/:id/test`
 - `POST /api/v1/admin/integrations/:id/activate`
+- `POST /api/v1/admin/integrations/:id/sync`
+- `POST /api/v1/admin/integrations/:id/restart-webhook`
+- `GET /api/v1/admin/ai`
+- `PATCH /api/v1/admin/ai/:id`
+- `POST /api/v1/admin/ai/restart`
+- `POST /api/v1/admin/ai/test-prompt`
+- `GET /api/v1/admin/health`
 - `GET /api/v1/admin/logs`
 
 `activate` cria/atualiza `whatsapp_accounts` a partir de `client_integrations`, preservando tokens apenas no backend e deixando `settings.autoReply=false` por padrão.
+
+`GET /api/v1/admin/logs` aceita filtros:
+
+- `startDate`
+- `endDate`
+- `organizationId`
+- `type`
+- `provider`
+
+Os logs retornam formato normalizado com `occurredAt`, `organization`, `whatsappAccount`, `module`, `type`, `provider`, `level` e `message`.
 
 ## Integração com o frontend (AGORA-BOT)
 

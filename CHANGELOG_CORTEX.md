@@ -2,6 +2,33 @@
 
 > Nome do arquivo mantido por compatibilidade documental. O Agora Bot 2 **não** está conectado ao Agora Cortex.
 
+## 2026-06-05 — Admin completo: logs, IA, saúde e auditoria
+
+### Módulos afetados
+
+`internal.routes.js`, painel Admin do AGORA-BOT, documentação.
+
+### Solução
+
+- Logs administrativos normalizados para evitar `Invalid Date`.
+- Filtros de logs por período, organização, tipo e provider.
+- Organizações enriquecidas com plano, status, criação, mensagens do mês, atendentes e contas WhatsApp.
+- Integrações enriquecidas com número, webhook, mensagens de hoje, última atividade e conta operacional.
+- Novas ações: sincronizar integração e reiniciar webhook interno.
+- Nova aba IA com provider, modelo, temperatura, limite diário, tokens, erros, restart e teste de prompt.
+- Novo painel de saúde para MongoDB, Socket.IO, Cloudflare R2, Groq, Meta e Z-API.
+- Auditoria para mutações administrativas com usuário, ação, organização, data e IP.
+
+### Como testar
+
+```bash
+npm run build
+npm run lint
+npm test
+```
+
+---
+
 ## 2026-06-05 — Admin operacional e hardening v1 stable
 
 ### Módulos afetados

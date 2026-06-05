@@ -58,6 +58,10 @@ Google Sheets **não** é fonte principal nesta arquitetura.
 - CRUD de `organizations` com inativação em vez de remoção destrutiva.
 - Gestão de `client_integrations` para Meta e Z-API.
 - Teste de conexão server-side e ativação operacional em `whatsapp_accounts`.
+- Sincronização de integração e reinício interno de webhook.
+- Aba IA para modelo, temperatura, limite diário, tokens, erros, restart e teste de prompt.
+- Monitoramento de MongoDB, Socket.IO, Cloudflare R2, Groq, Meta e Z-API.
+- Logs administrativos normalizados com filtros por período, organização, tipo e provider.
 - Dashboard administrativo lê métricas de `organizations`, `client_integrations`, `whatsapp_accounts`, `conversations`, `messages`, `logs` e `errors`.
 
 `client_integrations` é a camada administrativa de cadastro; `whatsapp_accounts` é a camada operacional consumida pelo webhook, ingestão e providers.

@@ -8,6 +8,7 @@ import { safeError } from './services/logging/logger.js';
 
 export function createApp({ io } = {}) {
   const app = express();
+  if (io) app.set('io', io);
 
   app.use(express.json({
     limit: '5mb',

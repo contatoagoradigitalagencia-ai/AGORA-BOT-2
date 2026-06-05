@@ -24,6 +24,7 @@ O painel operacional fica no repositório separado [AGORA-BOT](https://github.co
 - Atendimento humano (`human_queue`).
 - Admin multiempresa real (`/api/v1/admin/*`) para `owner/admin`.
 - Gestão de organizações, integrações Meta/Z-API, logs, webhooks e ativação de `whatsapp_accounts`.
+- Painel Admin operacional com logs filtráveis, métricas por organização, IA, saúde dos serviços e auditoria de ações.
 - Socket.IO para eventos em tempo real.
 - APIs internas `/api/v1/*` com JWT ou `x-api-key`.
 
