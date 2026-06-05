@@ -2,6 +2,42 @@
 
 > Nome do arquivo mantido por compatibilidade documental. O Agora Bot 2 **não** está conectado ao Agora Cortex.
 
+## 2026-06-04 — Rearquitetura Híbrida: Redução 80-95% de Tokens
+
+### Módulos afetados
+`bot-response.service.js`, `catalog.service.js`, `message-ingestion.service.js`, `internal.routes.js`
+
+### Novos módulos
+- `src/services/intent/intent-router.js` — Classificador local de intenção (sem IA)
+- `src/services/rules/rule-engine.js` — Motor de regras local
+- `src/services/rules/faq.service.js` — FAQ local + model Faq
+- `src/services/cache/cache.service.js` — Cache in-memory com TTL
+- `src/services/context/context-builder.js` — Context Builder (máx 10 eventos)
+- `src/services/profile/contact-profile.service.js` — Perfil e lead score do contato
+- `src/services/metrics/metrics.service.js` — Métricas de economia de tokens
+
+### Novo fluxo
+```
+Mensagem → Intent Router → Rule Engine → Resposta Local (sem Groq)
+                        ↘ (intent: sales/objection/unknown) → IA com contexto mínimo
+```
+
+### Estimativa de ganho
+- 80-95% menos chamadas ao Groq
+- Latência de respostas locais: <50ms vs ~2000ms com IA
+- Novo endpoint GET /api/v1/metrics/bot para acompanhar economia em tempo real
+
+### Novos endpoints
+- `GET /api/v1/metrics/bot` — dashboard de economia
+- `GET/POST/PATCH/DELETE /api/v1/faq` — CRUD de FAQ local
+- `DELETE /api/v1/products/:id`, `/services/:id`, `/plans/:id` — delete de catálogo
+
+### Compatibilidade
+- Z-API: mantida integralmente
+- Meta Cloud API: mantida integralmente
+- multiempresa por organizationId: mantida
+- `shouldSendToHuman` e `getBotConfig`: mantidos com mesma assinatura
+
 ## 2026-06-04 — Trava anti-flood e configuracao do Bot
 
 ### Módulo

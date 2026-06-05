@@ -314,14 +314,17 @@ export async function processNormalizedEvent(event, io) {
 
     if (conversation.humanRequired || conversation.aiEnabled === false) return { ok: true, ai: false };
 
-    const answer = await generateBotAnswer({
+    const botResult = await generateBotAnswer({
       organizationId: account.organizationId,
       whatsappAccountId: account._id,
       conversation,
+      contact,
       latestText: event.text || `[${event.type}]`,
     });
 
-    if (!answer) return { ok: true, ai: false };
+    // Novo retorno: { answer, intent, source, usedAI } ou null
+    const answer = botResult?.answer ?? botResult;
+    if (!answer) return { ok: true, ai: false, intent: botResult?.intent, source: botResult?.source };
 
     const provider = getWhatsAppProvider({
       ...account.toObject(),

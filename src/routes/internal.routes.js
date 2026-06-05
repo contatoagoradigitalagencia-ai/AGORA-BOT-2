@@ -221,5 +221,72 @@ export function internalRoutes() {
     res.json({ data });
   });
 
+  // ── Métricas de economia de tokens ──
+  router.get('/api/v1/metrics/bot', requireOrganization, async (req, res) => {
+    const { getMetricsSummary } = await import('../services/metrics/metrics.service.js');
+    const { getCacheStats } = await import('../services/cache/cache.service.js');
+    res.json({ data: { ...getMetricsSummary(), cache: getCacheStats() } });
+  });
+
+  // ── FAQ CRUD ──
+  router.get('/api/v1/faq', requireOrganization, async (req, res) => {
+    const { Faq } = await import('../services/rules/faq.service.js');
+    const data = await Faq.find({ organizationId: req.organizationId }).sort({ createdAt: -1 }).lean();
+    res.json({ data });
+  });
+
+  router.post('/api/v1/faq', requireOrganization, async (req, res) => {
+    const { Faq } = await import('../services/rules/faq.service.js');
+    const { cacheInvalidate } = await import('../services/cache/cache.service.js');
+    const data = await Faq.create({ ...req.body, organizationId: req.organizationId });
+    cacheInvalidate('faq', req.organizationId);
+    res.status(201).json({ data });
+  });
+
+  router.patch('/api/v1/faq/:id', requireOrganization, async (req, res) => {
+    const { Faq } = await import('../services/rules/faq.service.js');
+    const { cacheInvalidate } = await import('../services/cache/cache.service.js');
+    const data = await Faq.findOneAndUpdate(
+      { _id: req.params.id, organizationId: req.organizationId },
+      req.body,
+      { new: true },
+    );
+    if (!data) return res.status(404).json({ error: 'Not found' });
+    cacheInvalidate('faq', req.organizationId);
+    res.json({ data });
+  });
+
+  router.delete('/api/v1/faq/:id', requireOrganization, async (req, res) => {
+    const { Faq } = await import('../services/rules/faq.service.js');
+    const { cacheInvalidate } = await import('../services/cache/cache.service.js');
+    await Faq.findOneAndDelete({ _id: req.params.id, organizationId: req.organizationId });
+    cacheInvalidate('faq', req.organizationId);
+    res.json({ data: { deleted: true } });
+  });
+
+  // ── DELETE para catálogo (produtos, serviços, planos) ──
+  for (const [path, Model] of Object.entries(models)) {
+    router.delete(`/api/v1/${path}/:id`, requireOrganization, async (req, res) => {
+      const { cacheInvalidateAll } = await import('../services/cache/cache.service.js');
+      const data = await Model.findOneAndDelete({ _id: req.params.id, organizationId: req.organizationId });
+      if (!data) return res.status(404).json({ error: 'Not found' });
+      cacheInvalidateAll(req.organizationId);
+      res.json({ data: { deleted: true } });
+    });
+  }
+
+  // ── Invalidar cache ao salvar catálogo ──
+  // (os POSTs e PATCHs do loop acima não invalidam — sobrescrevemos os handlers de catálogo)
+  for (const catalogPath of ['products', 'services', 'plans']) {
+    const Model = models[catalogPath];
+    if (!Model) continue;
+
+    router.post(`/api/v1/${catalogPath}/invalidate-cache`, requireOrganization, async (req, res) => {
+      const { cacheInvalidateAll } = await import('../services/cache/cache.service.js');
+      cacheInvalidateAll(req.organizationId);
+      res.json({ data: { invalidated: true } });
+    });
+  }
+
   return router;
 }
