@@ -14,7 +14,14 @@ const messageSchema = new mongoose.Schema({
   status: { type: String, enum: ['received', 'sent', 'delivered', 'read', 'failed'], default: 'received', index: true },
   raw: { type: Object, default: {} },
   occurredAt: { type: Date, default: Date.now, index: true },
-  aiGenerated: { type: Boolean, default: false },
+  aiGenerated:          { type: Boolean, default: false },
+  // Autoria humana
+  sentByUserId:         { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  sentByUserName:       { type: String, default: '' },
+  source:               { type: String, enum: ['bot', 'human', 'system', 'client'], default: 'client' },
+  // Reply
+  replyToMessageId:     { type: mongoose.Schema.Types.ObjectId, ref: 'Message' },
+  replyToPreview:       { type: Object, default: null },
 }, { timestamps: true });
 
 messageSchema.index({ provider: 1, providerMessageId: 1 }, { unique: true, sparse: true });

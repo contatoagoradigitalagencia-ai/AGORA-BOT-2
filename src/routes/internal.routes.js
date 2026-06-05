@@ -94,8 +94,12 @@ export function internalRoutes() {
   });
 
   router.get('/api/v1/whatsapp-accounts', requireOrganization, async (req, res) => {
-    const data = await WhatsAppAccount.find(scopedQuery(req)).sort({ createdAt: -1 }).lean();
-    res.json({ data });
+    let data = await WhatsAppAccount.find(scopedQuery(req)).sort({ createdAt: -1 }).lean();
+    // Fallback: se organizationId não bater (doc legado com org vazia), retorna todas as ativas
+    if (!data.length) {
+      data = await WhatsAppAccount.find({ status: 'active' }).sort({ createdAt: -1 }).limit(10).lean();
+    }
+    res.json({ data: data.map(publicAccount) });
   });
 
   router.post('/api/v1/whatsapp-accounts', requireOrganization, async (req, res) => {
@@ -121,16 +125,24 @@ export function internalRoutes() {
   });
 
   router.patch('/api/v1/whatsapp-accounts/:id/settings', requireOrganization, async (req, res) => {
-    const account = await WhatsAppAccount.findOne({ _id: req.params.id, organizationId: req.organizationId });
+    // Busca com org primeiro; fallback por _id puro (doc legado com organizationId vazio)
+    let account = await WhatsAppAccount.findOne({ _id: req.params.id, organizationId: toObjectId(req.organizationId) });
+    if (!account) account = await WhatsAppAccount.findById(req.params.id);
     if (!account) return res.status(404).json({ error: 'WhatsApp account not found' });
 
     const settingsPatch = req.body?.settings && typeof req.body.settings === 'object'
       ? req.body.settings
       : req.body;
 
-    const data = await WhatsAppAccount.findOneAndUpdate(
-      { _id: req.params.id, organizationId: req.organizationId },
-      { $set: { settings: { ...(account.settings || {}), ...settingsPatch } } },
+    // Apenas campos permitidos
+    const allowed = ['autoReply', 'humanHandoff', 'fallbackMessage'];
+    const patch = Object.fromEntries(
+      Object.entries(settingsPatch).filter(([k]) => allowed.includes(k))
+    );
+
+    const data = await WhatsAppAccount.findByIdAndUpdate(
+      account._id,
+      { $set: { settings: { ...(account.settings || {}), ...patch } } },
       { new: true },
     ).lean();
 
@@ -138,7 +150,11 @@ export function internalRoutes() {
   });
 
   router.get('/api/v1/bot-config', requireOrganization, async (req, res) => {
-    const accounts = await WhatsAppAccount.find(scopedQuery(req)).sort({ createdAt: 1 }).lean();
+    let accounts = await WhatsAppAccount.find(scopedQuery(req)).sort({ createdAt: 1 }).lean();
+    // Fallback: doc legado com organizationId vazio
+    if (!accounts.length) {
+      accounts = await WhatsAppAccount.find({ status: 'active' }).sort({ createdAt: 1 }).limit(1).lean();
+    }
     const account = accounts[0] || null;
     const config = account
       ? await BotConfig.findOne({ organizationId: req.organizationId, whatsappAccountId: account._id }).lean()
@@ -299,6 +315,144 @@ export function internalRoutes() {
       res.json({ data: { invalidated: true } });
     });
   }
+
+
+  // ── Atendimento humano — request, assign, close ─────────────────────────────
+
+  router.post('/api/v1/conversations/:id/request-human', requireOrganization, async (req, res) => {
+    const conversation = await Conversation.findOne({ _id: req.params.id });
+    if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
+
+    await Conversation.updateOne(
+      { _id: conversation._id },
+      { humanRequired: true, status: 'pending_human' },
+    );
+
+    await HumanQueue.findOneAndUpdate(
+      { conversationId: conversation._id, status: { $in: ['waiting', 'assigned'] } },
+      {
+        $setOnInsert: {
+          organizationId: conversation.organizationId,
+          conversationId: conversation._id,
+          contactId: conversation.contactId,
+          reason: req.body?.reason || 'manual',
+          status: 'waiting',
+          priority: req.body?.priority || 'normal',
+        },
+      },
+      { upsert: true, new: true },
+    );
+
+    res.json({ success: true });
+  });
+
+  router.post('/api/v1/conversations/:id/assign', requireOrganization, async (req, res) => {
+    const { userId, userName } = req.body || {};
+    if (!userId) return res.status(400).json({ error: 'userId obrigatório' });
+
+    await Conversation.updateOne(
+      { _id: req.params.id },
+      {
+        assignedUserId: userId,
+        humanRequired: true,
+        status: 'pending_human',
+        'metadata.assignedToName': userName || '',
+        'metadata.assignedAt': new Date(),
+      },
+    );
+
+    await HumanQueue.findOneAndUpdate(
+      { conversationId: req.params.id, status: { $in: ['waiting', 'assigned'] } },
+      { $set: { assignedUserId: userId, status: 'assigned' } },
+    );
+
+    res.json({ success: true });
+  });
+
+  router.post('/api/v1/conversations/:id/close-human', requireOrganization, async (req, res) => {
+    const { resumeBot = false } = req.body || {};
+
+    const update = {
+      humanRequired: false,
+      assignedUserId: null,
+      'metadata.assignedToName': '',
+    };
+    if (resumeBot) {
+      update.status = 'open';
+      update.aiEnabled = true;
+    } else {
+      update.status = 'closed';
+    }
+
+    await Conversation.updateOne({ _id: req.params.id }, { $set: update });
+    await HumanQueue.findOneAndUpdate(
+      { conversationId: req.params.id, status: { $in: ['waiting', 'assigned'] } },
+      { $set: { status: 'resolved' } },
+    );
+
+    res.json({ success: true });
+  });
+
+  // ── Mensagem manual com reply ────────────────────────────────────────────────
+
+  router.post('/api/v1/conversations/:id/messages', requireOrganization, async (req, res) => {
+    const { text, replyToMessageId } = req.body || {};
+    if (!text?.trim()) return res.status(400).json({ error: 'text obrigatório' });
+
+    const conversation = await Conversation.findOne({ _id: req.params.id }).lean();
+    if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
+
+    const contact = await Contact.findById(conversation.contactId).lean();
+    if (!contact) return res.status(404).json({ error: 'Contact not found' });
+
+    const account = await WhatsAppAccount.findById(conversation.whatsappAccountId)
+      .select('+accessTokenEncrypted +clientTokenEncrypted +credentials');
+    if (!account) return res.status(404).json({ error: 'WhatsApp account not found' });
+
+    // Busca mensagem original para preview
+    let replyToPreview = null;
+    if (replyToMessageId) {
+      const original = await Message.findById(replyToMessageId).lean();
+      if (original) {
+        replyToPreview = {
+          text:        original.text || '',
+          type:        original.type || 'text',
+          direction:   original.direction,
+          occurredAt:  original.occurredAt,
+          senderName:  original.direction === 'inbound' ? (contact.name || contact.phone) : 'Bot',
+        };
+      }
+    }
+
+    const provider = getWhatsAppProvider(account.toObject());
+    const result = await provider.sendText(contact.phone, text);
+    const providerMessageId = result?.messages?.[0]?.id || result?.messageId || result?.id || `manual-${Date.now()}`;
+
+    const message = await Message.create({
+      organizationId:          conversation.organizationId,
+      whatsappAccountId:       account._id,
+      contactId:               contact._id,
+      conversationId:          conversation._id,
+      provider:                account.provider,
+      providerMessageId,
+      direction:               'outbound',
+      type:                    'text',
+      text:                    text.trim(),
+      status:                  'sent',
+      aiGenerated:             false,
+      replyToMessageId:        replyToMessageId || null,
+      replyToPreview:          replyToPreview,
+      occurredAt:              new Date(),
+      raw:                     result || {},
+    });
+
+    await Conversation.updateOne(
+      { _id: conversation._id },
+      { lastMessageAt: new Date(), lastMessagePreview: text.trim().slice(0, 80) },
+    );
+
+    res.status(201).json({ data: message });
+  });
 
   return router;
 }
