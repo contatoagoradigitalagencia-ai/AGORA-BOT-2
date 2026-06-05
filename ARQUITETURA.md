@@ -50,6 +50,26 @@ Persistência outbound + metrics/logs
 Socket.IO (eventos para o frontend)
 ```
 
+## Fluxo administrativo
+
+```text
+Owner/Admin no AGORA-BOT
+        ↓
+JWT com role owner/admin
+        ↓
+/api/v1/admin/*
+        ↓
+organizations + client_integrations + logs/errors
+        ↓
+Ativar integração
+        ↓
+whatsapp_accounts operacional
+        ↓
+Webhooks Meta/Z-API usam a conta ativa
+```
+
+`client_integrations` é cadastro administrativo; `whatsapp_accounts` é execução real do bot. Essa separação evita misturar tokens no frontend e mantém compatibilidade com os webhooks validados.
+
 ## Estrutura de pastas
 
 | Pasta | Responsabilidade |
@@ -62,7 +82,7 @@ Socket.IO (eventos para o frontend)
 | `src/services/bot` | Resposta IA e handoff humano |
 | `src/services/catalog` | Produtos, serviços, planos |
 | `src/routes` | Health, webhooks, `/api/v1` |
-| `src/middleware` | Auth JWT e organização |
+| `src/middleware` | Auth JWT, organização e Admin (`owner/admin`) |
 | `src/socket` | Socket.IO |
 
 ## Deploy recomendado

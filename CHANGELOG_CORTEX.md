@@ -2,6 +2,31 @@
 
 > Nome do arquivo mantido por compatibilidade documental. O Agora Bot 2 **não** está conectado ao Agora Cortex.
 
+## 2026-06-05 — Admin operacional e hardening v1 stable
+
+### Módulos afetados
+
+`internal.routes.js`, `middleware/admin.js`, `organization.model.js`, `message.model.js`, documentação e frontend AGORA-BOT.
+
+### Solução
+
+- Admin backend protegido por papel `owner/admin`.
+- Novas rotas `/api/v1/admin/overview`, `/admin/organizations`, `/admin/integrations`, `/admin/logs`.
+- Ativação de integração cria/atualiza `whatsapp_accounts` operacional a partir de `client_integrations`.
+- Tokens Meta/Z-API seguem criptografados e fora das respostas do frontend.
+- `PATCH /whatsapp-accounts/:id/settings` aceita controles reais de AutoReply, grupos, newsletters e limite de IA.
+- `messages` aceita `sticker` e deduplica por `whatsappAccountId + provider + providerMessageId`.
+- Frontend Admin passa a mostrar dashboard, organizações, integrações, logs, webhooks e estados vazios.
+
+### Como testar
+
+```bash
+npm run build
+npm test
+```
+
+---
+
 ## 2026-06-05 — Correção de imagem e vídeo Z-API
 
 ### Módulos afetados

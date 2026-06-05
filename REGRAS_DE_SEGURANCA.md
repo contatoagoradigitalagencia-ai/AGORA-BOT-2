@@ -29,6 +29,12 @@ Rotas `/api/v1/*` exigem JWT válido **ou** `x-api-key` correto.
 
 Nunca consultar dados operacionais sem `organizationId` quando a rota for multiempresa.
 
+Rotas `/api/v1/admin/*` exigem papel `owner` ou `admin`. O frontend pode esconder a tela Admin para outros papéis, mas a proteção obrigatória fica no backend.
+
+`client_integrations` guarda tokens com `select:false` e criptografia via `encryptSecret`. Listagens administrativas retornam apenas metadados e máscaras, nunca o valor real do token.
+
+Ao ativar uma integração, o backend copia credenciais criptografadas para `whatsapp_accounts`; o browser nunca recebe token Meta, Z-API, Groq, JWT secret ou chave de criptografia.
+
 ## Logs
 
 O logger **não** deve registrar tokens, senhas ou chaves. Campos sensíveis são mascarados por nome.

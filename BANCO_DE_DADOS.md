@@ -30,6 +30,7 @@ A conexão Mongoose usa `dbName: env.mongodbDbName` em `src/db/mongoose.js`.
 - `organizations`
 - `users` (`phone` único, `passwordHash` bcrypt, `active`, `organizationId`)
 - `whatsapp_accounts`
+- `client_integrations` (cadastro administrativo de Meta/Z-API; tokens `select:false` e criptografados)
 - `contacts`
 - `conversations`
 - `messages`
@@ -51,7 +52,9 @@ A conexão Mongoose usa `dbName: env.mongodbDbName` em `src/db/mongoose.js`.
 
 Entidades operacionais exigem `organizationId`:
 
-`whatsapp_accounts`, `contacts`, `conversations`, `messages`, `products`, `services`, `plans`, `bot_configs`, `prompts`, `knowledge_base`, `quick_replies`, `human_queue`, `automations`, `flows`, `metrics`, `logs`, `errors`.
+`whatsapp_accounts`, `client_integrations`, `contacts`, `conversations`, `messages`, `products`, `services`, `plans`, `bot_configs`, `prompts`, `knowledge_base`, `quick_replies`, `human_queue`, `automations`, `flows`, `metrics`, `logs`, `errors`.
+
+`messages` deduplica `providerMessageId` por `whatsappAccountId + provider`, evitando colisão entre contas diferentes usando o mesmo provider.
 
 ## URI de conexão
 

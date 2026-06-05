@@ -76,7 +76,10 @@ Quando aplicável:
 
 - `GET /api/v1/organizations`
 - `POST /api/v1/organizations`
+- `GET /api/v1/me`
 - `POST /api/v1/users`
+
+`GET|POST /api/v1/organizations` é administrativo e exige papel `owner` ou `admin`.
 
 ### WhatsApp
 
@@ -116,6 +119,25 @@ Quando `autoReply` e `false`, mensagens inbound sao salvas, mas a IA nao e chama
 - `GET /api/v1/contacts`
 - `GET /api/v1/messages`
 - `GET /api/v1/human-queue`
+
+### Admin multiempresa
+
+Rotas exclusivas para `owner/admin`:
+
+- `GET /api/v1/admin/overview`
+- `GET /api/v1/admin/organizations`
+- `POST /api/v1/admin/organizations`
+- `PATCH /api/v1/admin/organizations/:id`
+- `DELETE /api/v1/admin/organizations/:id` (soft delete: inativa)
+- `GET /api/v1/admin/integrations`
+- `POST /api/v1/admin/integrations`
+- `PATCH /api/v1/admin/integrations/:id`
+- `DELETE /api/v1/admin/integrations/:id` (soft delete: inativa)
+- `POST /api/v1/admin/integrations/:id/test`
+- `POST /api/v1/admin/integrations/:id/activate`
+- `GET /api/v1/admin/logs`
+
+`activate` cria/atualiza `whatsapp_accounts` a partir de `client_integrations`, preservando tokens apenas no backend e deixando `settings.autoReply=false` por padrão.
 
 ## Integração com o frontend (AGORA-BOT)
 

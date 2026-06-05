@@ -18,12 +18,16 @@ import {
   Conversation,
   Contact,
   Message,
+  Log,
+  ErrorLog,
 } from '../models/index.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requireOrganization } from '../middleware/organization.js';
-import { encryptSecret } from '../services/security/crypto.js';
+import { requireAdminRole } from '../middleware/admin.js';
+import { encryptSecret, decryptSecret } from '../services/security/crypto.js';
 import { canSendFreeformMessage } from '../services/messaging/send-window.js';
 import { getWhatsAppProvider } from '../providers/whatsapp/index.js';
+import { env } from '../config/env.js';
 
 const models = {
   products: Product,
@@ -71,17 +75,101 @@ function cleanObject(payload, allowedFields) {
   );
 }
 
+function slugify(value) {
+  return String(value || 'cliente')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48) || 'cliente';
+}
+
+async function uniqueSlug(name, currentId) {
+  const base = slugify(name);
+  let slug = base;
+  let suffix = 1;
+  while (await Organization.exists({ slug, ...(currentId ? { _id: { $ne: currentId } } : {}) })) {
+    suffix += 1;
+    slug = `${base}-${suffix}`;
+  }
+  return slug;
+}
+
+function publicOrganization(org) {
+  const obj = org.toObject ? org.toObject() : { ...org };
+  if (obj._id) obj.id = String(obj._id);
+  return obj;
+}
+
+function organizationPayload(body) {
+  const allowed = [
+    'name',
+    'slug',
+    'ownerName',
+    'responsibleName',
+    'phone',
+    'email',
+    'plan',
+    'notes',
+    'status',
+    'settings',
+  ];
+  return cleanObject(body || {}, allowed);
+}
+
+function adminOrganizationFilter(req) {
+  return req.query.organizationId
+    ? { organizationId: toObjectId(req.query.organizationId) }
+    : {};
+}
+
+function maskSecret(value) {
+  if (!value || String(value).length < 6) return '****';
+  return '****' + String(value).slice(-4);
+}
+
+function redactSensitive(value) {
+  if (Array.isArray(value)) return value.map(redactSensitive);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => {
+      if (/token|secret|password|key|credential/i.test(key)) {
+        return [key, entry ? maskSecret(String(entry)) : entry];
+      }
+      return [key, redactSensitive(entry)];
+    }),
+  );
+}
+
 export function internalRoutes() {
   const router = Router();
   router.use('/api/v1', requireAuth);
 
-  router.get('/api/v1/organizations', async (req, res) => {
-    const organizations = await Organization.find().sort({ createdAt: -1 }).lean();
-    res.json({ data: organizations });
+  router.get('/api/v1/me', async (req, res) => {
+    if (req.user?.type === 'internal') {
+      return res.json({ data: { ...req.user, id: req.user.userId || req.user.id || 'internal' } });
+    }
+
+    const userId = req.user?.userId || req.user?.sub || req.user?.id;
+    const user = userId ? await User.findById(userId).lean() : null;
+    if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
+
+    delete user.passwordHash;
+    user.id = String(user._id);
+    res.json({ data: user });
   });
 
-  router.post('/api/v1/organizations', async (req, res) => {
-    const organization = await Organization.create(req.body);
+  router.get('/api/v1/organizations', requireAdminRole, async (req, res) => {
+    const organizations = await Organization.find().sort({ createdAt: -1 }).lean();
+    res.json({ data: organizations.map(publicOrganization) });
+  });
+
+  router.post('/api/v1/organizations', requireAdminRole, async (req, res) => {
+    const payload = organizationPayload(req.body);
+    if (!payload.name?.trim()) return res.status(400).json({ error: 'name obrigatório' });
+    payload.slug = payload.slug ? slugify(payload.slug) : await uniqueSlug(payload.name);
+    const organization = await Organization.create(payload);
     res.status(201).json({ data: organization });
   });
 
@@ -241,8 +329,20 @@ export function internalRoutes() {
       ? req.body.settings
       : req.body;
 
-    // Apenas campos permitidos
-    const allowed = ['autoReply', 'humanHandoff', 'fallbackMessage'];
+    // Apenas campos permitidos. Inclui controles de grupo e limites usados pelo painel Bot.
+    const allowed = [
+      'autoReply',
+      'humanHandoff',
+      'humanHandoffEnabled',
+      'fallbackMessage',
+      'groupRepliesEnabled',
+      'groupReplyMode',
+      'blockNewsletter',
+      'defaultProvider',
+      'aiDailyLimit',
+      'aiModel',
+      'model',
+    ];
     const patch = Object.fromEntries(
       Object.entries(settingsPatch).filter(([k]) => allowed.includes(k))
     );
@@ -654,106 +754,37 @@ export function internalRoutes() {
   });
 
 
-  // ── Admin — Client Integrations ─────────────────────────────────────────────
-
-  function maskSecret(value) {
-    if (!value || value.length < 6) return '****';
-    return '****' + String(value).slice(-4);
-  }
+  // ── Admin — operação real multiempresa ─────────────────────────────────────
 
   function publicIntegration(doc) {
     const obj = doc.toObject ? doc.toObject() : { ...doc };
     if (obj._id) obj.id = String(obj._id);
-    // Mascara campos sensíveis
+    if (obj.organizationId && typeof obj.organizationId === 'object' && obj.organizationId._id) {
+      obj.organization = publicOrganization(obj.organizationId);
+      obj.organizationId = String(obj.organizationId._id);
+    } else if (obj.organizationId) {
+      obj.organizationId = String(obj.organizationId);
+    }
     if (obj.metaAccessToken) obj.metaAccessToken = maskSecret(obj.metaAccessToken);
     if (obj.metaVerifyToken) obj.metaVerifyToken = maskSecret(obj.metaVerifyToken);
-    if (obj.metaAppSecret)   obj.metaAppSecret   = maskSecret(obj.metaAppSecret);
+    if (obj.metaAppSecret) obj.metaAppSecret = maskSecret(obj.metaAppSecret);
     if (obj.zapiInstanceToken) obj.zapiInstanceToken = maskSecret(obj.zapiInstanceToken);
-    if (obj.zapiClientToken)   obj.zapiClientToken   = maskSecret(obj.zapiClientToken);
+    if (obj.zapiClientToken) obj.zapiClientToken = maskSecret(obj.zapiClientToken);
     return obj;
   }
 
-  // GET — lista integrações
-  router.get('/api/v1/admin/integrations', requireOrganization, async (req, res) => {
-    const data = await ClientIntegration.find({ organizationId: toObjectId(req.organizationId) })
-      .sort({ createdAt: -1 }).lean();
-    res.json({ data: data.map(i => { if (i._id) i.id = String(i._id); return i; }) });
-  });
-
-  // POST — cria integração
-  router.post('/api/v1/admin/integrations', requireOrganization, async (req, res) => {
-    const {
-      clientName, companyName, provider,
-      metaWabaId, metaPhoneNumberId, metaAccessToken, metaVerifyToken, metaAppId, metaAppSecret,
-      zapiInstanceId, zapiInstanceToken, zapiClientToken, zapiBaseUrl,
-    } = req.body;
-
-    if (!clientName?.trim()) return res.status(400).json({ error: 'clientName obrigatório' });
-    if (!provider) return res.status(400).json({ error: 'provider obrigatório' });
-
-    const doc = await ClientIntegration.create({
-      organizationId: toObjectId(req.organizationId),
-      clientName: clientName.trim(),
-      companyName: companyName?.trim() || '',
-      provider,
-      status: 'pending',
-      metaWabaId:          metaWabaId          || '',
-      metaPhoneNumberId:   metaPhoneNumberId   || '',
-      metaAccessToken:     metaAccessToken ? encryptSecret(metaAccessToken) : '',
-      metaVerifyToken:     metaVerifyToken ? encryptSecret(metaVerifyToken) : '',
-      metaAppId:           metaAppId           || '',
-      metaAppSecret:       metaAppSecret ? encryptSecret(metaAppSecret) : '',
-      zapiInstanceId:      zapiInstanceId      || '',
-      zapiInstanceToken:   zapiInstanceToken ? encryptSecret(zapiInstanceToken) : '',
-      zapiClientToken:     zapiClientToken ? encryptSecret(zapiClientToken) : '',
-      zapiBaseUrl:         zapiBaseUrl || 'https://api.z-api.io',
-    });
-
-    res.status(201).json({ data: publicIntegration(doc) });
-  });
-
-  // PATCH — atualiza integração
-  router.patch('/api/v1/admin/integrations/:id', requireOrganization, async (req, res) => {
-    const allowed = ['clientName','companyName','provider','status','zapiBaseUrl',
-      'metaWabaId','metaPhoneNumberId','metaAppId',
-      'metaAccessToken','metaVerifyToken','metaAppSecret',
-      'zapiInstanceId','zapiInstanceToken','zapiClientToken'];
-
-    const update = {};
-    for (const key of allowed) {
-      if (req.body[key] === undefined) continue;
-      const secretFields = ['metaAccessToken','metaVerifyToken','metaAppSecret','zapiInstanceToken','zapiClientToken'];
-      update[key] = secretFields.includes(key) && req.body[key]
-        ? encryptSecret(req.body[key])
-        : req.body[key];
-    }
-
-    const doc = await ClientIntegration.findOneAndUpdate(
-      { _id: req.params.id, organizationId: toObjectId(req.organizationId) },
-      { $set: update },
-      { new: true },
-    );
-    if (!doc) return res.status(404).json({ error: 'Integração não encontrada' });
-    res.json({ data: publicIntegration(doc) });
-  });
-
-  // DELETE — remove integração
-  router.delete('/api/v1/admin/integrations/:id', requireOrganization, async (req, res) => {
-    await ClientIntegration.findOneAndDelete({ _id: req.params.id, organizationId: toObjectId(req.organizationId) });
-    res.json({ data: { deleted: true } });
-  });
-
-  // POST — testa conexão
-  router.post('/api/v1/admin/integrations/:id/test', requireOrganization, async (req, res) => {
-    const { decryptSecret } = await import('../services/security/crypto.js');
-    const doc = await ClientIntegration.findOne(
-      { _id: req.params.id, organizationId: toObjectId(req.organizationId) }
-    ).select('+metaAccessToken +metaVerifyToken +metaAppSecret +zapiInstanceToken +zapiClientToken');
-
-    if (!doc) return res.status(404).json({ error: 'Integração não encontrada' });
-
-    let ok = false;
-    let message = '';
+  async function runIntegrationTest(doc) {
+    const testedAt = new Date();
+    const result = {
+      ok: false,
+      provider: doc.provider,
+      status: 'error',
+      connected: false,
+      phoneNumber: '',
+      error: null,
+      message: '',
+      testedAt,
+    };
 
     try {
       if (doc.provider === 'meta') {
@@ -761,39 +792,324 @@ export function internalRoutes() {
         const phoneId = doc.metaPhoneNumberId;
         if (!token || !phoneId) throw new Error('Access Token e Phone Number ID são obrigatórios');
         const r = await fetch(
-          'https://graph.facebook.com/v21.0/' + phoneId + '?fields=id,display_phone_number',
-          { headers: { Authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(6000) }
+          `https://graph.facebook.com/${env.metaGraphVersion}/${phoneId}?fields=id,display_phone_number`,
+          { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(6000) },
         );
         const data = await r.json();
         if (data.error) throw new Error(data.error.message);
-        ok = true;
-        message = 'Conectado: ' + (data.display_phone_number || data.id);
+        result.ok = true;
+        result.status = 'connected';
+        result.connected = true;
+        result.phoneNumber = data.display_phone_number || data.id || '';
+        result.message = `Conectado: ${result.phoneNumber || phoneId}`;
       } else {
-        // Z-API
         const instanceId = doc.zapiInstanceId;
         const token = decryptSecret(doc.zapiInstanceToken);
         const base = (doc.zapiBaseUrl || 'https://api.z-api.io').replace(/\/$/, '');
         if (!instanceId || !token) throw new Error('Instance ID e Token são obrigatórios');
         const r = await fetch(
-          base + '/instances/' + instanceId + '/token/' + token + '/status',
-          { signal: AbortSignal.timeout(6000) }
+          `${base}/instances/${instanceId}/token/${token}/status`,
+          { signal: AbortSignal.timeout(6000) },
         );
         const data = await r.json();
-        const connected = data?.connected === true || data?.value === 'open' || data?.status === 'open';
+        const connected = data?.connected === true
+          || data?.value === 'open'
+          || data?.status === 'open'
+          || data?.session === 'open';
         if (!connected) throw new Error('Instância desconectada ou inválida');
-        ok = true;
-        message = 'Z-API conectada';
+        result.ok = true;
+        result.status = 'connected';
+        result.connected = true;
+        result.phoneNumber = doc.zapiInstanceId;
+        result.message = 'Z-API conectada';
       }
     } catch (err) {
-      message = err.message;
+      result.error = err.message;
+      result.message = err.message;
     }
 
+    return result;
+  }
+
+  function integrationPayload(req) {
+    const secretFields = ['metaAccessToken', 'metaVerifyToken', 'metaAppSecret', 'zapiInstanceToken', 'zapiClientToken'];
+    const allowed = [
+      'clientName',
+      'companyName',
+      'provider',
+      'status',
+      'zapiBaseUrl',
+      'metaWabaId',
+      'metaPhoneNumberId',
+      'metaAppId',
+      'metaAccessToken',
+      'metaVerifyToken',
+      'metaAppSecret',
+      'zapiInstanceId',
+      'zapiInstanceToken',
+      'zapiClientToken',
+    ];
+    const update = cleanObject(req.body || {}, allowed);
+    for (const key of secretFields) {
+      if (update[key]) update[key] = encryptSecret(update[key]);
+      if (update[key] === '') delete update[key];
+    }
+    if (update.clientName) update.clientName = update.clientName.trim();
+    if (update.companyName) update.companyName = update.companyName.trim();
+    return update;
+  }
+
+  router.get('/api/v1/admin/overview', requireAdminRole, async (req, res) => {
+    const [
+      organizationsCount,
+      activeOrganizationsCount,
+      activeIntegrations,
+      pendingIntegrations,
+      errorIntegrations,
+      zapiIntegrations,
+      metaIntegrations,
+      whatsappAccounts,
+      conversationsCount,
+      messagesCount,
+      latestError,
+      latestTest,
+    ] = await Promise.all([
+      Organization.countDocuments({}),
+      Organization.countDocuments({ status: 'active' }),
+      ClientIntegration.countDocuments({ status: 'active' }),
+      ClientIntegration.countDocuments({ status: 'pending' }),
+      ClientIntegration.countDocuments({ status: 'error' }),
+      ClientIntegration.countDocuments({ provider: 'zapi' }),
+      ClientIntegration.countDocuments({ provider: 'meta' }),
+      WhatsAppAccount.countDocuments({}),
+      Conversation.countDocuments({}),
+      Message.countDocuments({}),
+      ErrorLog.findOne({}).sort({ createdAt: -1 }).lean(),
+      ClientIntegration.findOne({ lastTestedAt: { $ne: null } }).sort({ lastTestedAt: -1 }).lean(),
+    ]);
+
+    res.json({
+      data: {
+        organizationsCount,
+        activeOrganizationsCount,
+        integrations: {
+          active: activeIntegrations,
+          pending: pendingIntegrations,
+          error: errorIntegrations,
+          zapi: zapiIntegrations,
+          meta: metaIntegrations,
+        },
+        whatsappAccounts,
+        conversationsCount,
+        messagesCount,
+        latestError: latestError ? redactSensitive(latestError) : null,
+        latestTest: latestTest ? publicIntegration(latestTest) : null,
+      },
+    });
+  });
+
+  router.get('/api/v1/admin/organizations', requireAdminRole, async (req, res) => {
+    const data = await Organization.find().sort({ createdAt: -1 }).lean();
+    res.json({ data: data.map(publicOrganization) });
+  });
+
+  router.post('/api/v1/admin/organizations', requireAdminRole, async (req, res) => {
+    const payload = organizationPayload(req.body);
+    if (!payload.name?.trim()) return res.status(400).json({ error: 'name obrigatório' });
+    payload.slug = payload.slug ? slugify(payload.slug) : await uniqueSlug(payload.name);
+    const organization = await Organization.create(payload);
+    res.status(201).json({ data: publicOrganization(organization) });
+  });
+
+  router.patch('/api/v1/admin/organizations/:id', requireAdminRole, async (req, res) => {
+    const payload = organizationPayload(req.body);
+    if (payload.slug) payload.slug = await uniqueSlug(payload.slug, req.params.id);
+    const organization = await Organization.findByIdAndUpdate(
+      req.params.id,
+      { $set: payload },
+      { new: true },
+    );
+    if (!organization) return res.status(404).json({ error: 'Organização não encontrada' });
+    res.json({ data: publicOrganization(organization) });
+  });
+
+  router.delete('/api/v1/admin/organizations/:id', requireAdminRole, async (req, res) => {
+    const conversations = await Conversation.countDocuments({ organizationId: toObjectId(req.params.id) });
+    const organization = await Organization.findByIdAndUpdate(
+      req.params.id,
+      { $set: { status: 'inactive' } },
+      { new: true },
+    );
+    if (!organization) return res.status(404).json({ error: 'Organização não encontrada' });
+    res.json({
+      data: {
+        deleted: false,
+        inactivated: true,
+        conversations,
+        organization: publicOrganization(organization),
+      },
+    });
+  });
+
+  router.get('/api/v1/admin/logs', requireAdminRole, async (req, res) => {
+    const filter = {};
+    if (req.query.organizationId) filter.organizationId = toObjectId(req.query.organizationId);
+    if (req.query.level) filter.level = req.query.level;
+    const limit = Math.min(Number(req.query.limit || 80), 200);
+    const [logs, errors] = await Promise.all([
+      Log.find(filter).sort({ createdAt: -1 }).limit(limit).lean(),
+      ErrorLog.find(req.query.organizationId ? { organizationId: toObjectId(req.query.organizationId) } : {})
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .lean(),
+    ]);
+    const data = [
+      ...logs.map((item) => ({ ...item, kind: 'log' })),
+      ...errors.map((item) => ({ ...item, level: 'error', kind: 'error' })),
+    ]
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .slice(0, limit)
+      .map(redactSensitive);
+    res.json({ data });
+  });
+
+  router.get('/api/v1/admin/integrations', requireAdminRole, async (req, res) => {
+    const data = await ClientIntegration.find(adminOrganizationFilter(req))
+      .populate('organizationId', 'name slug status')
+      .sort({ createdAt: -1 });
+    res.json({ data: data.map(publicIntegration) });
+  });
+
+  router.post('/api/v1/admin/integrations', requireAdminRole, async (req, res) => {
+    const payload = integrationPayload(req);
+    if (!payload.clientName?.trim()) return res.status(400).json({ error: 'clientName obrigatório' });
+    if (!payload.provider) return res.status(400).json({ error: 'provider obrigatório' });
+    const organizationId = req.body.organizationId || req.organizationId;
+    if (!organizationId) return res.status(400).json({ error: 'organizationId obrigatório' });
+
+    const doc = await ClientIntegration.create({
+      ...payload,
+      organizationId: toObjectId(organizationId),
+      companyName: payload.companyName || '',
+      status: payload.status || 'pending',
+      zapiBaseUrl: payload.zapiBaseUrl || 'https://api.z-api.io',
+    });
+
+    res.status(201).json({ data: publicIntegration(doc) });
+  });
+
+  router.patch('/api/v1/admin/integrations/:id', requireAdminRole, async (req, res) => {
+    const update = integrationPayload(req);
+    if (req.body.organizationId) update.organizationId = toObjectId(req.body.organizationId);
+    const doc = await ClientIntegration.findByIdAndUpdate(
+      req.params.id,
+      { $set: update },
+      { new: true },
+    );
+    if (!doc) return res.status(404).json({ error: 'Integração não encontrada' });
+    res.json({ data: publicIntegration(doc) });
+  });
+
+  router.delete('/api/v1/admin/integrations/:id', requireAdminRole, async (req, res) => {
+    const doc = await ClientIntegration.findByIdAndUpdate(
+      req.params.id,
+      { $set: { status: 'inactive' } },
+      { new: true },
+    );
+    if (!doc) return res.status(404).json({ error: 'Integração não encontrada' });
+    res.json({ data: { deleted: false, inactivated: true } });
+  });
+
+  router.post('/api/v1/admin/integrations/:id/test', requireAdminRole, async (req, res) => {
+    const doc = await ClientIntegration.findById(req.params.id)
+      .select('+metaAccessToken +metaVerifyToken +metaAppSecret +zapiInstanceToken +zapiClientToken');
+    if (!doc) return res.status(404).json({ error: 'Integração não encontrada' });
+
+    const result = await runIntegrationTest(doc);
     await ClientIntegration.updateOne(
       { _id: doc._id },
-      { $set: { lastTestedAt: new Date(), lastTestResult: message, status: ok ? 'active' : 'error' } }
+      { $set: { lastTestedAt: result.testedAt, lastTestResult: result.message, status: result.ok ? 'active' : 'error' } },
     );
 
-    res.json({ ok, message });
+    res.json(result);
+  });
+
+  router.post('/api/v1/admin/integrations/:id/activate', requireAdminRole, async (req, res) => {
+    const doc = await ClientIntegration.findById(req.params.id)
+      .select('+metaAccessToken +metaVerifyToken +metaAppSecret +zapiInstanceToken +zapiClientToken');
+    if (!doc) return res.status(404).json({ error: 'Integração não encontrada' });
+
+    if (doc.status !== 'active') {
+      return res.status(400).json({ error: 'Teste a conexão antes de ativar esta integração' });
+    }
+
+    const organizationId = toObjectId(doc.organizationId);
+    const commonSettings = {
+      autoReply: false,
+      groupRepliesEnabled: false,
+      groupReplyMode: 'mention_only',
+      blockNewsletter: true,
+    };
+
+    let account;
+    if (doc.provider === 'zapi') {
+      if (!doc.zapiInstanceId || !doc.zapiInstanceToken) {
+        return res.status(400).json({ error: 'Instance ID e Token Z-API são obrigatórios' });
+      }
+
+      account = await WhatsAppAccount.findOneAndUpdate(
+        { organizationId, provider: 'zapi', instanceId: doc.zapiInstanceId },
+        {
+          $set: {
+            organizationId,
+            provider: 'zapi',
+            label: doc.companyName || doc.clientName,
+            phoneNumber: doc.zapiInstanceId,
+            externalId: doc.zapiInstanceId,
+            instanceId: doc.zapiInstanceId,
+            accessTokenEncrypted: doc.zapiInstanceToken,
+            clientTokenEncrypted: doc.zapiClientToken,
+            credentials: { instanceId: doc.zapiInstanceId, baseUrl: doc.zapiBaseUrl || 'https://api.z-api.io' },
+            status: 'active',
+            settings: commonSettings,
+          },
+        },
+        { new: true, upsert: true },
+      );
+    } else {
+      if (!doc.metaPhoneNumberId || !doc.metaAccessToken) {
+        return res.status(400).json({ error: 'Phone Number ID e Access Token Meta são obrigatórios' });
+      }
+
+      account = await WhatsAppAccount.findOneAndUpdate(
+        { organizationId, provider: 'meta', phoneNumberId: doc.metaPhoneNumberId },
+        {
+          $set: {
+            organizationId,
+            provider: 'meta',
+            label: doc.companyName || doc.clientName,
+            phoneNumber: doc.metaPhoneNumberId,
+            phoneNumberId: doc.metaPhoneNumberId,
+            wabaId: doc.metaWabaId || '',
+            externalId: doc.metaPhoneNumberId,
+            accessTokenEncrypted: doc.metaAccessToken,
+            verifyToken: decryptSecret(doc.metaVerifyToken),
+            webhookSecret: doc.metaAppSecret,
+            credentials: { appId: doc.metaAppId || '', graphVersion: env.metaGraphVersion },
+            status: 'active',
+            settings: commonSettings,
+          },
+        },
+        { new: true, upsert: true },
+      );
+    }
+
+    await WhatsAppAccount.updateMany(
+      { organizationId, _id: { $ne: account._id } },
+      { $set: { status: 'inactive' } },
+    );
+
+    res.json({ data: publicAccount(account) });
   });
 
 
