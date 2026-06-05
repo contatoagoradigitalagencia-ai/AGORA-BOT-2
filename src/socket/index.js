@@ -1,6 +1,6 @@
 import { Server } from 'socket.io';
 import { env } from '../config/env.js';
-import { WhatsAppAccount, Contact, Conversation, Message } from '../models/index.js';
+import { WhatsAppAccount, Contact, Conversation, Message, QuickReply, HumanQueue } from '../models/index.js';
 import mongoose from 'mongoose';
 
 function toObjId(id) {
@@ -161,6 +161,148 @@ export function createSocketServer(httpServer) {
         callback(500);
       }
     });
+
+    // ── chat:send_message — envio manual de texto ────────────────────────────
+    socket.on('chat:send_message', async ({ phone, message } = {}, callback) => {
+      if (typeof callback !== 'function') return;
+      try {
+        if (!phone || !message) return callback(400);
+
+        const contact = await Contact.findOne({ phone: String(phone).replace(/\D/g, '') }).lean()
+          || await Contact.findOne({ phone }).lean();
+        if (!contact) return callback({ error: 'Contact not found' });
+
+        const conversation = await Conversation.findOne({ contactId: contact._id }).lean();
+        if (!conversation) return callback({ error: 'Conversation not found' });
+
+        const account = await WhatsAppAccount.findById(conversation.whatsappAccountId)
+          .select('+accessTokenEncrypted +clientTokenEncrypted +credentials');
+        if (!account) return callback({ error: 'Account not found' });
+
+        const text = message?.text?.body || message?.body || (typeof message === 'string' ? message : '');
+        if (!text.trim()) return callback(400);
+
+        const { getWhatsAppProvider } = await import('../providers/whatsapp/index.js');
+        const provider = getWhatsAppProvider(account.toObject());
+        const result = await provider.sendText(contact.phone, text);
+        const providerMessageId = result?.messages?.[0]?.id || result?.messageId || result?.id || ('manual-' + Date.now());
+
+        const msg = await Message.create({
+          organizationId:    conversation.organizationId,
+          whatsappAccountId: account._id,
+          contactId:         contact._id,
+          conversationId:    conversation._id,
+          provider:          account.provider,
+          providerMessageId,
+          direction:         'outbound',
+          type:              'text',
+          text:              text.trim(),
+          status:            'sent',
+          aiGenerated:       false,
+          occurredAt:        new Date(),
+          source:            'human',
+          raw:               result || {},
+        });
+
+        await Conversation.updateOne(
+          { _id: conversation._id },
+          { $set: { lastMessageAt: new Date(), lastMessagePreview: text.slice(0, 80) } }
+        );
+
+        // Broadcast em tempo real
+        if (io.broadcastMessage) io.broadcastMessage(conversation.organizationId, contact.phone, msg, contact);
+
+        callback(204);
+      } catch (err) {
+        console.error('[Socket] chat:send_message error', err.message);
+        callback({ error: err.message });
+      }
+    });
+
+    // ── chat:on_off — liga/desliga IA por contato ───────────────────────────
+    socket.on('chat:on_off', async ({ phone, stateBot } = {}, callback) => {
+      if (typeof callback !== 'function') return;
+      try {
+        const contact = await Contact.findOne({ phone }).lean();
+        if (!contact) return callback({ error: 'Contact not found' });
+        await Conversation.updateOne(
+          { contactId: contact._id },
+          { $set: { aiEnabled: Boolean(stateBot) } }
+        );
+        callback(204);
+      } catch (err) {
+        callback({ error: err.message });
+      }
+    });
+
+    // ── contacts:save_comment — salva observação do contato ─────────────────
+    socket.on('contacts:save_comment', async ({ phone, comment } = {}, callback) => {
+      if (typeof callback !== 'function') return;
+      try {
+        await Contact.updateOne({ phone }, { $set: { 'metadata.comment': comment } });
+        callback(204);
+      } catch (err) {
+        callback({ error: err.message });
+      }
+    });
+
+    // ── quick-messages — CRUD de mensagens rápidas ───────────────────────────
+    socket.on('quick-messages:get_quick_messages', async ({ type } = {}, callback) => {
+      if (typeof callback !== 'function') return;
+      try {
+        const filter = organizationId ? { organizationId: toObjId(organizationId) } : {};
+        if (type) filter.type = type;
+        const data = await QuickReply.find(filter).sort({ name: 1 }).lean();
+        callback({ quickMessages: data });
+      } catch (err) { callback({ error: err.message }); }
+    });
+
+    socket.on('quick-messages:save_quick_message', async ({ id, name, message, type } = {}, callback) => {
+      if (typeof callback !== 'function') return;
+      try {
+        if (id) {
+          await QuickReply.findByIdAndUpdate(id, { $set: { name, message, type } });
+        } else {
+          await QuickReply.create({ organizationId: toObjId(organizationId), name, message, type: type || 'text' });
+        }
+        callback(204);
+      } catch (err) { callback({ error: err.message }); }
+    });
+
+    socket.on('quick-messages:delete_quick_message', async ({ id } = {}, callback) => {
+      if (typeof callback !== 'function') return;
+      try {
+        await QuickReply.findByIdAndDelete(id);
+        callback(204);
+      } catch (err) { callback({ error: err.message }); }
+    });
+
+    // ── support:get_info_support ─────────────────────────────────────────────
+    socket.on('support:get_info_support', async ({} = {}, callback) => {
+      if (typeof callback !== 'function') return;
+      callback({ status: 'operational', version: '2.0.0' });
+    });
+
+    // ── human-service:remove_waiting_service ────────────────────────────────
+    socket.on('human-service:remove_waiting_service', async ({ phone } = {}, callback) => {
+      if (typeof callback !== 'function') return;
+      try {
+        const contact = await Contact.findOne({ phone }).lean();
+        if (contact) {
+          await HumanQueue.updateMany(
+            { contactId: contact._id, status: { $in: ['waiting', 'assigned'] } },
+            { $set: { status: 'resolved' } }
+          );
+          await Conversation.updateOne(
+            { contactId: contact._id },
+            { $set: { humanRequired: false, status: 'open' } }
+          );
+        }
+        callback(204);
+      } catch (err) { callback({ error: err.message }); }
+    });
+
+
   });
 
   // Emite nova mensagem em tempo real para o org correto
