@@ -781,5 +781,69 @@ export function internalRoutes() {
     res.json({ ok, message });
   });
 
+
+  // ── Setup inicial — criar admin (só funciona com SETUP_SECRET) ───────────
+  // REMOVER após primeiro uso
+  router.post('/api/v1/setup/admin', async (req, res) => {
+    const { secret, password, name, phone } = req.body || {};
+
+    const SETUP_SECRET = process.env.SETUP_SECRET;
+    if (!SETUP_SECRET || secret !== SETUP_SECRET) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    if (!password || !phone) {
+      return res.status(400).json({ error: 'password e phone são obrigatórios' });
+    }
+
+    try {
+      const { normalizePhone, hashPassword } = await import('../services/auth/auth.service.js');
+      const normalizedPhone = normalizePhone(phone);
+      const passwordHash    = await hashPassword(password);
+
+      // Garante que existe uma organização
+      let org = await Organization.findOne({});
+      if (!org) {
+        org = await Organization.create({
+          name: name || 'Agora Digital',
+          slug: 'agora-digital',
+          status: 'active',
+        });
+      }
+
+      // Cria ou atualiza o usuário
+      const existing = await User.findOne({ phone: normalizedPhone });
+      let user;
+      if (existing) {
+        existing.passwordHash  = passwordHash;
+        existing.organizationId = org._id;
+        existing.role           = 'owner';
+        existing.active         = true;
+        if (name) existing.name = name;
+        await existing.save();
+        user = existing;
+      } else {
+        user = await User.create({
+          organizationId: org._id,
+          name:           name || 'Admin',
+          phone:          normalizedPhone,
+          email:          normalizedPhone + '@agora.local',
+          role:           'owner',
+          active:         true,
+          passwordHash,
+        });
+      }
+
+      return res.json({
+        ok:             true,
+        userId:         String(user._id),
+        organizationId: String(org._id),
+        phone:          normalizedPhone,
+        message:        'Usuário criado/atualizado. Faça login agora.',
+      });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
   return router;
 }
