@@ -454,5 +454,28 @@ export function internalRoutes() {
     res.status(201).json({ data: message });
   });
 
+
+  // ── Troca de senha ────────────────────────────────────────────────────────
+  router.patch('/api/v1/settings/password', requireAuth, async (req, res) => {
+    const { password, newPassword } = req.body || {};
+    if (!password || !newPassword) {
+      return res.status(400).json({ error: 'password e newPassword são obrigatórios' });
+    }
+    if (newPassword.length < 5) {
+      return res.status(400).json({ error: 'Nova senha deve ter pelo menos 5 caracteres' });
+    }
+
+    const user = await User.findById(req.user.userId || req.user.sub).select('+passwordHash');
+    if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
+
+    const matches = await bcrypt.compare(password, user.passwordHash);
+    if (!matches) return res.status(401).json({ error: 'Senha atual incorreta' });
+
+    user.passwordHash = await bcrypt.hash(newPassword, 12);
+    await user.save();
+
+    res.json({ success: true });
+  });
+
   return router;
 }
