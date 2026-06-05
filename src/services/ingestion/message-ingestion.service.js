@@ -287,6 +287,10 @@ export async function processNormalizedEvent(event, io) {
     await persistMetric(account.organizationId, 'message.received', { provider: event.provider, type: event.type });
 
     io?.to(String(account.organizationId)).emit('message:received', { conversationId: conversation._id, messageId: inbound._id });
+    // Broadcast para o chat em tempo real (formato normalizado)
+    if (io?.broadcastMessage) {
+      io.broadcastMessage(account.organizationId, event.from, inbound, contact);
+    }
 
     if (!isAutoReplyEnabled(account)) {
       console.log('[Ingestion] autoReply paused, message saved without AI response', {
