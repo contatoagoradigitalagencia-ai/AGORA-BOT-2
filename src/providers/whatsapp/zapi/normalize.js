@@ -52,7 +52,55 @@ function pickGroupInfo(payload) {
   return { isGroup, groupId, participantId, mentions: mentioned };
 }
 
+
+// Tipos de eventos de sistema que nunca devem gerar resposta
+const SYSTEM_EVENT_TYPES = new Set([
+  'groupParticipantAdded',
+  'groupParticipantRemoved',
+  'groupParticipantLeft',
+  'groupParticipantPromoted',
+  'groupParticipantDemoted',
+  'groupUpdated',
+  'groupCreated',
+  'groupDeleted',
+  'groupSubjectUpdated',
+  'groupDescriptionUpdated',
+  'groupIconUpdated',
+  'groupInviteLinkRevoked',
+  'participantAdded',
+  'participantRemoved',
+  'participantLeft',
+  'left',
+  'add',
+  'remove',
+  'promote',
+  'demote',
+  'MessageStatusCallback',
+  'ReadReceiptCallback',
+  'DeliveryCallback',
+  'statusCallback',
+  'PresenceCallback',
+  'call',
+  'poll',
+]);
+
+function isSystemEvent(payload) {
+  const type = String(payload.type || payload.event || payload.messageType || '');
+  if (SYSTEM_EVENT_TYPES.has(type)) return true;
+  // Z-API às vezes manda participantLid sem texto — é evento de grupo
+  if (payload.participantLid && !payload.text?.message && !payload.message && !payload.body) return true;
+  // Notificações de grupo sem conteúdo real
+  if (payload.notification || payload.notificationType) return true;
+  return false;
+}
+
 export function normalizeZapiWebhook(payload) {
+  // Ignora eventos de sistema de grupo — saída, entrada, promoção, etc.
+  if (isSystemEvent(payload)) {
+    console.log('[Z-API] system event ignored:', payload.type || payload.event, payload.phone);
+    return [];
+  }
+
   const phone = payload.phone || payload.from || payload.senderPhone;
   const instanceId = payload.instanceId || payload.instance || payload.sessionId || payload.externalId;
   if (!phone || !instanceId) return [];
