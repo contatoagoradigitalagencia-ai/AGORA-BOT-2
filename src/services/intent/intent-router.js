@@ -13,7 +13,8 @@ const RULES = [
       /\bquero falar com (algu[eé]m|um humano|uma pessoa|o atendente|voc[eê]s)\b/i,
       /\bme coloca (pra|para) falar/i,
       /\bfalar com (atendente|suporte|respons[aá]vel)\b/i,
-      /\btransfer[eê]/?r?\b/i,
+      /\btransfer[eê]ncia\b/i,
+      /\btransferir\b/i,
     ],
   },
   {
