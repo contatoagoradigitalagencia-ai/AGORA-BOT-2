@@ -292,10 +292,15 @@ export async function processNormalizedEvent(event, io) {
       io.broadcastMessage(account.organizationId, event.from, inbound, contact);
     }
 
+    // ── Bloquear newsletters ─────────────────────────────────────────────────
+    if (event.raw?.isNewsletter || String(event.from || '').includes('@newsletter')) {
+      return { ok: true, skipped: 'newsletter', conversationId: conversation?._id };
+    }
+
     // ── Controle de grupos ────────────────────────────────────────────────────
     if (event.isGroup) {
-      const groupEnabled = account.settings?.groupRepliesEnabled !== false; // default true
-      const groupMode    = account.settings?.groupReplyMode || 'mention_only'; // default seguro
+      const groupEnabled = account.settings?.groupRepliesEnabled === true; // default FALSE — seguro
+      const groupMode    = account.settings?.groupReplyMode || 'mention_only';
 
       if (!groupEnabled || groupMode === 'disabled') {
         console.log('[Ingestion] group reply disabled — skipping bot response', {

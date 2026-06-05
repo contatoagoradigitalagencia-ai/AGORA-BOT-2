@@ -87,6 +87,10 @@ const SYSTEM_EVENT_TYPES = new Set([
 function isSystemEvent(payload) {
   const type = String(payload.type || payload.event || payload.messageType || '');
   if (SYSTEM_EVENT_TYPES.has(type)) return true;
+  // Newsletter — nunca responder
+  if (payload.isNewsletter === true) return true;
+  const phone = String(payload.phone || payload.from || '');
+  if (phone.includes('@newsletter')) return true;
   // Z-API às vezes manda participantLid sem texto — é evento de grupo
   if (payload.participantLid && !payload.text?.message && !payload.message && !payload.body) return true;
   // Notificações de grupo sem conteúdo real
