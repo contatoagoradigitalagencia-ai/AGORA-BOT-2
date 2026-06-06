@@ -519,24 +519,29 @@ export function internalRoutes() {
   }
 
   router.get('/api/v1/conversations', requireOrganization, async (req, res) => {
-    const data = await Conversation.find(scopedQuery(req)).sort({ lastMessageAt: -1 }).limit(200).lean();
+    const { limit, skip } = parsePagination(req.query);
+    const data = await Conversation.find(scopedQuery(req)).sort({ lastMessageAt: -1 }).skip(skip).limit(limit).lean();
     res.json({ data });
   });
 
   router.get('/api/v1/contacts', requireOrganization, async (req, res) => {
-    const data = await Contact.find(scopedQuery(req)).sort({ lastMessageAt: -1 }).limit(200).lean();
+    const { limit, skip } = parsePagination(req.query);
+    const data = await Contact.find(scopedQuery(req)).sort({ lastMessageAt: -1 }).skip(skip).limit(limit).lean();
     res.json({ data });
   });
 
   router.get('/api/v1/messages', requireOrganization, async (req, res) => {
+    const { limit, skip } = parsePagination(req.query, 50);
     const filter = { ...scopedQuery(req) };
     if (req.query.conversationId) filter.conversationId = req.query.conversationId;
-    const data = await Message.find(filter).sort({ occurredAt: -1 }).limit(200).lean();
+    if (req.query.contactId)      filter.contactId      = req.query.contactId;
+    const data = await Message.find(filter).sort({ occurredAt: -1 }).skip(skip).limit(limit).lean();
     res.json({ data });
   });
 
   router.get('/api/v1/human-queue', requireOrganization, async (req, res) => {
-    const data = await HumanQueue.find(scopedQuery(req)).sort({ createdAt: 1 }).limit(200).lean();
+    const { limit, skip } = parsePagination(req.query, 50);
+    const data = await HumanQueue.find(scopedQuery(req)).sort({ createdAt: 1 }).skip(skip).limit(limit).lean();
     res.json({ data });
   });
 
@@ -1151,6 +1156,7 @@ export function internalRoutes() {
         messagesCount,
         latestError: latestError ? redactSensitive(latestError) : null,
         latestTest: latestTest ? publicIntegration(latestTest) : null,
+        intentCache: getIntentCacheStats(),
       },
     });
   });

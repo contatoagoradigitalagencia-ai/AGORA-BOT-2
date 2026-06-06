@@ -206,6 +206,17 @@ export function classifyIntent(text) {
     return { intent: 'unknown', confidence: 0, matched: [] };
   }
 
+  // Cache check
+  const cacheKey = getCacheKey(text);
+  if (cacheKey) {
+    const cached = intentCache.get(cacheKey);
+    if (cached && Date.now() < cached.expiresAt) {
+      cacheHits++;
+      return { ...cached.result, fromCache: true };
+    }
+  }
+  cacheMisses++;
+
   const normalized = text.trim().toLowerCase();
   let best = { intent: 'unknown', confidence: 0, matched: [] };
 
@@ -213,7 +224,6 @@ export function classifyIntent(text) {
     const matchedPatterns = rule.patterns.filter((p) => p.test(normalized));
     if (matchedPatterns.length === 0) continue;
 
-    // Score = peso base + bônus por cada pattern adicional
     const score = rule.weight + (matchedPatterns.length - 1) * 10;
 
     if (score > best.confidence) {
@@ -223,6 +233,11 @@ export function classifyIntent(text) {
         matched: matchedPatterns.map((p) => p.toString()),
       };
     }
+  }
+
+  // Save to cache
+  if (cacheKey) {
+    intentCache.set(cacheKey, { result: best, expiresAt: Date.now() + CACHE_TTL_MS });
   }
 
   return best;
