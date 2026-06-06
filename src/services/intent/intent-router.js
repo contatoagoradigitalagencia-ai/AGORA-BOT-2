@@ -164,6 +164,43 @@ const RULES = [
  * @param {string} text
  * @returns {{ intent: string, confidence: number, matched: string[] }}
  */
+// ── Intent Cache — evita regex em mensagens repetidas ────────────────────────
+const intentCache = new Map();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos
+
+// Limpa entradas expiradas a cada 10 minutos
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of intentCache) {
+    if (now > v.expiresAt) intentCache.delete(k);
+  }
+}, 10 * 60_000);
+
+// Regex para detectar dados sensíveis — não cachear
+const SENSITIVE_RE = /\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}|[\w.+-]+@[\w-]+\.[a-z]{2,}|\(\d{2}\)\s?\d{4,5}-?\d{4}/;
+
+function normalizeText(text) {
+  return String(text || '')
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function getCacheKey(text) {
+  const norm = normalizeText(text);
+  // Não cachear: mensagens longas ou com dados sensíveis
+  if (norm.length > 500 || SENSITIVE_RE.test(norm)) return null;
+  return norm;
+}
+
+let cacheHits = 0;
+let cacheMisses = 0;
+
+export function getIntentCacheStats() {
+  return { hits: cacheHits, misses: cacheMisses, size: intentCache.size };
+}
+
+
 export function classifyIntent(text) {
   if (!text || typeof text !== 'string') {
     return { intent: 'unknown', confidence: 0, matched: [] };

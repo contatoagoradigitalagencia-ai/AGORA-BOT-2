@@ -1,4 +1,5 @@
 import { Server } from 'socket.io';
+import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
 import { WhatsAppAccount, Contact, Conversation, Message, QuickReply, HumanQueue } from '../models/index.js';
 import { canSendFreeformMessage } from '../services/messaging/send-window.js';
@@ -67,13 +68,32 @@ export function createSocketServer(httpServer) {
     cors: { origin: env.corsOrigins, credentials: true },
   });
 
-  io.on('connection', (socket) => {
-    const rawOrgId = socket.handshake.auth?.organizationId
-      || socket.handshake.query?.organizationId
-      || socket.handshake.auth?.idPhone
-      || socket.handshake.query?.idPhone;
+  // ── JWT Auth Middleware — bloqueia socket sem token válido ─────────────
+  io.use((socket, next) => {
+    const token = socket.handshake.auth?.token
+      || socket.handshake.headers?.authorization?.replace('Bearer ', '');
 
-    const organizationId = rawOrgId;
+    if (!token) {
+      return next(new Error('Token inválido'));
+    }
+
+    if (!env.jwtSecret) {
+      return next(new Error('Server misconfigured'));
+    }
+
+    try {
+      const decoded = jwt.verify(token, env.jwtSecret);
+      socket.user           = decoded;
+      socket.organizationId = decoded.organizationId || decoded.idPhone || null;
+      return next();
+    } catch {
+      return next(new Error('Token inválido'));
+    }
+  });
+
+  io.on('connection', (socket) => {
+    // organizationId vem do JWT decodificado — não do payload do cliente
+    const organizationId = socket.organizationId;
     if (organizationId) socket.join(String(organizationId));
     socket.emit('connected', { service: 'agora-bot-2' });
 

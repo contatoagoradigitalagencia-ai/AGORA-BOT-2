@@ -26,6 +26,7 @@ import { requireOrganization } from '../middleware/organization.js';
 import { requireAdminRole } from '../middleware/admin.js';
 import { encryptSecret, decryptSecret } from '../services/security/crypto.js';
 import { canSendFreeformMessage } from '../services/messaging/send-window.js';
+import { getIntentCacheStats } from '../services/intent/intent-router.js';
 import { getWhatsAppProvider } from '../providers/whatsapp/index.js';
 import { env } from '../config/env.js';
 
@@ -214,6 +215,15 @@ async function auditAdmin(req, action, { organizationId, whatsappAccountId, prov
   }
 }
 
+
+// ── Paginação helper ─────────────────────────────────────────────────────────
+function parsePagination(query, defaultLimit = 50, maxLimit = 200) {
+  const page  = Math.max(1, parseInt(query.page  || '1'));
+  const limit = Math.min(maxLimit, Math.max(1, parseInt(query.limit || String(defaultLimit))));
+  const skip  = (page - 1) * limit;
+  return { page, limit, skip };
+}
+
 export function internalRoutes() {
   const router = Router();
   router.use('/api/v1', requireAuth);
@@ -233,7 +243,8 @@ export function internalRoutes() {
   });
 
   router.get('/api/v1/organizations', requireAdminRole, async (req, res) => {
-    const organizations = await Organization.find().sort({ createdAt: -1 }).lean();
+    const { limit, skip } = parsePagination(req.query, 50);
+    const organizations = await Organization.find().sort({ createdAt: -1 }).skip(skip).limit(limit).lean();
     res.json({ data: organizations.map(publicOrganization) });
   });
 
@@ -259,7 +270,8 @@ export function internalRoutes() {
     const filter = { organizationId: toObjectId(req.organizationId) };
     if (req.query.active !== undefined) filter.active = req.query.active !== 'false';
     if (req.query.role) filter.role = { $in: req.query.role.split(',') };
-    const users = await User.find(filter).sort({ name: 1 }).lean();
+    const { limit, skip } = parsePagination(req.query);
+    const users = await User.find(filter).sort({ name: 1 }).skip(skip).limit(limit).lean();
     res.json({ data: users.map(u => { delete u.passwordHash; if (u._id) u.id = String(u._id); return u; }) });
   });
 
@@ -438,7 +450,7 @@ export function internalRoutes() {
     const config = account
       ? await BotConfig.findOne({ organizationId: req.organizationId, whatsappAccountId: account._id }).lean()
       : null;
-    const prompts = await Prompt.find(scopedQuery(req)).sort({ createdAt: -1 }).lean();
+    const prompts = await Prompt.find(scopedQuery(req)).sort({ createdAt: -1 }).limit(50).lean();
     const prompt = config?.promptId
       ? prompts.find((item) => String(item._id) === String(config.promptId)) || null
       : prompts.find((item) => item.active && item.type === 'bot') || null;
@@ -538,7 +550,8 @@ export function internalRoutes() {
   // ── FAQ CRUD ──
   router.get('/api/v1/faq', requireOrganization, async (req, res) => {
     const { Faq } = await import('../services/rules/faq.service.js');
-    const data = await Faq.find({ organizationId: req.organizationId }).sort({ createdAt: -1 }).lean();
+    const { limit, skip } = parsePagination(req.query, 100);
+    const data = await Faq.find({ organizationId: req.organizationId }).sort({ createdAt: -1 }).skip(skip).limit(limit).lean();
     res.json({ data });
   });
 
@@ -776,7 +789,8 @@ export function internalRoutes() {
   router.get('/api/v1/attendants', requireOrganization, async (req, res) => {
     const filter = { organizationId: toObjectId(req.organizationId) };
     if (req.query.active !== undefined) filter.active = req.query.active !== 'false';
-    const data = await Attendant.find(filter).sort({ name: 1 }).lean();
+    const { limit, skip } = parsePagination(req.query);
+    const data = await Attendant.find(filter).sort({ name: 1 }).skip(skip).limit(limit).lean();
     res.json({ data: data.map(a => ({ ...a, id: String(a._id) })) });
   });
 
