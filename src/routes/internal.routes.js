@@ -1634,5 +1634,212 @@ export function internalRoutes() {
   });
 
 
-    return router;
+  
+  // ── Onboarding Z-API — preparar acesso do cliente ───────────────────────────
+
+  // POST /admin/organizations/:id/client-user
+  // Cria usuário owner da organização do cliente
+  router.post('/api/v1/admin/organizations/:id/client-user', requireAdminRole, async (req, res) => {
+    const { phone, password, name, role } = req.body || {};
+    if (!phone || !password || !name) {
+      return res.status(400).json({ error: 'phone, password e name são obrigatórios' });
+    }
+    const org = await Organization.findById(req.params.id).lean();
+    if (!org) return res.status(404).json({ error: 'Organização não encontrada' });
+
+    const normalizedPhone = String(phone).replace(/\D/g, '');
+    const existing = await User.findOne({ phone: normalizedPhone });
+    if (existing) return res.status(409).json({ error: 'Telefone já cadastrado' });
+
+    const passwordHash = await bcrypt.hash(password, 12);
+    const user = await User.create({
+      organizationId: org._id,
+      name:           String(name).trim(),
+      phone:          normalizedPhone,
+      email:          normalizedPhone + '@client.agorabot.local',
+      role:           ['owner','admin','manager','agent'].includes(role) ? role : 'owner',
+      active:         true,
+      passwordHash,
+    });
+
+    return res.status(201).json({
+      data: {
+        id:             String(user._id),
+        phone:          user.phone,
+        name:           user.name,
+        role:           user.role,
+        organizationId: String(user.organizationId),
+      },
+    });
+  });
+
+  // POST /admin/organizations/:id/whatsapp-account
+  // Cria conta Z-API para o cliente com settings seguros padrão
+  router.post('/api/v1/admin/organizations/:id/whatsapp-account', requireAdminRole, async (req, res) => {
+    const { phoneNumber, instanceId, instanceToken, clientToken, baseUrl, label } = req.body || {};
+    if (!instanceId || !instanceToken) {
+      return res.status(400).json({ error: 'instanceId e instanceToken são obrigatórios' });
+    }
+    const org = await Organization.findById(req.params.id).lean();
+    if (!org) return res.status(404).json({ error: 'Organização não encontrada' });
+
+    const existing = await WhatsAppAccount.findOne({ organizationId: org._id, provider: 'zapi' });
+    if (existing) return res.status(409).json({ error: 'Organização já possui conta Z-API' });
+
+    const account = await WhatsAppAccount.create({
+      organizationId: org._id,
+      provider:       'zapi',
+      label:          label || phoneNumber || 'WhatsApp',
+      phoneNumber:    phoneNumber || '',
+      status:         'disconnected',
+      instanceId,
+      externalId:     instanceId,
+      accessTokenEncrypted:  encryptSecret(instanceToken),
+      clientTokenEncrypted:  clientToken ? encryptSecret(clientToken) : '',
+      credentials: {
+        instanceId,
+        instanceToken: encryptSecret(instanceToken),
+        clientToken:   clientToken ? encryptSecret(clientToken) : '',
+        baseUrl:       baseUrl || 'https://api.z-api.io',
+      },
+      settings: {
+        autoReply:           false,
+        groupRepliesEnabled: false,
+        groupReplyMode:      'disabled',
+        blockNewsletters:    true,
+      },
+    });
+
+    return res.status(201).json({ data: publicAccount(account) });
+  });
+
+  // GET /whatsapp-accounts/me — cliente vê só as contas da própria org
+  router.get('/api/v1/whatsapp-accounts/me', requireOrganization, async (req, res) => {
+    const accounts = await WhatsAppAccount.find({ organizationId: toObjectId(req.organizationId) })
+      .sort({ createdAt: -1 }).lean();
+    res.json({ data: accounts.map(publicAccount) });
+  });
+
+  // POST /whatsapp-accounts/:id/qr — busca QR Code na Z-API
+  router.post('/api/v1/whatsapp-accounts/:id/qr', requireOrganization, async (req, res) => {
+    const account = await WhatsAppAccount.findOne({
+      _id:            req.params.id,
+      organizationId: toObjectId(req.organizationId),
+    }).select('+credentials +accessTokenEncrypted +clientTokenEncrypted');
+
+    if (!account) return res.status(404).json({ error: 'Conta não encontrada' });
+    if (account.provider !== 'zapi') return res.status(400).json({ error: 'QR Code disponível apenas para Z-API' });
+
+    try {
+      const { zapiCredentials } = await import('../providers/whatsapp/zapi/provider.js');
+      const creds = zapiCredentials(account.toObject());
+      const base = (creds.baseUrl || 'https://api.z-api.io').replace(/\/$/, '');
+      const url  = `${base}/instances/${creds.instanceId}/token/${creds.token}/qr-code`;
+
+      const zapiRes = await fetch(url, {
+        headers: creds.clientToken ? { 'client-token': creds.clientToken } : {},
+        signal:  AbortSignal.timeout(15_000),
+      });
+
+      if (!zapiRes.ok) {
+        const body = await zapiRes.text();
+        return res.status(zapiRes.status).json({ error: 'Z-API error', detail: body.slice(0, 200) });
+      }
+
+      const data = await zapiRes.json();
+      // Z-API retorna { value: "data:image/png;base64,..." } ou { qrcode: "..." }
+      const qr = data.value || data.qrcode || data.qr || null;
+      if (!qr) return res.status(202).json({ status: 'already_connected', message: 'Dispositivo já conectado' });
+
+      return res.json({ qr, format: qr.startsWith('data:') ? 'base64' : 'url' });
+    } catch (err) {
+      return res.status(502).json({ error: 'Não foi possível obter QR Code: ' + err.message });
+    }
+  });
+
+  // GET /whatsapp-accounts/:id/status — status real da Z-API
+  router.get('/api/v1/whatsapp-accounts/:id/status', requireOrganization, async (req, res) => {
+    const account = await WhatsAppAccount.findOne({
+      _id:            req.params.id,
+      organizationId: toObjectId(req.organizationId),
+    }).select('+credentials +accessTokenEncrypted +clientTokenEncrypted');
+
+    if (!account) return res.status(404).json({ error: 'Conta não encontrada' });
+
+    try {
+      const { zapiCredentials } = await import('../providers/whatsapp/zapi/provider.js');
+      const creds = zapiCredentials(account.toObject());
+      const base  = (creds.baseUrl || 'https://api.z-api.io').replace(/\/$/, '');
+
+      const zapiRes = await fetch(
+        `${base}/instances/${creds.instanceId}/token/${creds.token}/status`,
+        { headers: creds.clientToken ? { 'client-token': creds.clientToken } : {},
+          signal: AbortSignal.timeout(8_000) }
+      );
+
+      const data = await zapiRes.json().catch(() => ({}));
+      const connected = data?.connected === true || data?.value === 'open' || data?.status === 'open';
+      const newStatus = connected ? 'active' : 'disconnected';
+
+      // Atualiza banco em background
+      WhatsAppAccount.updateOne({ _id: account._id }, { status: newStatus }).catch(() => {});
+
+      return res.json({
+        connected,
+        status: newStatus,
+        phone:  data?.phone || account.phoneNumber || null,
+        raw:    { connected: data?.connected, value: data?.value },
+      });
+    } catch (err) {
+      return res.status(502).json({ error: 'Não foi possível verificar status: ' + err.message });
+    }
+  });
+
+  // POST /whatsapp-accounts/:id/disconnect
+  router.post('/api/v1/whatsapp-accounts/:id/disconnect', requireOrganization, async (req, res) => {
+    const account = await WhatsAppAccount.findOne({
+      _id: req.params.id, organizationId: toObjectId(req.organizationId),
+    }).select('+credentials +accessTokenEncrypted +clientTokenEncrypted');
+    if (!account) return res.status(404).json({ error: 'Conta não encontrada' });
+
+    try {
+      const { zapiCredentials } = await import('../providers/whatsapp/zapi/provider.js');
+      const creds = zapiCredentials(account.toObject());
+      const base  = (creds.baseUrl || 'https://api.z-api.io').replace(/\/$/, '');
+      await fetch(
+        `${base}/instances/${creds.instanceId}/token/${creds.token}/disconnect`,
+        { method: 'DELETE', headers: creds.clientToken ? { 'client-token': creds.clientToken } : {},
+          signal: AbortSignal.timeout(10_000) }
+      );
+      await WhatsAppAccount.updateOne({ _id: account._id }, { status: 'disconnected' });
+      return res.json({ ok: true, status: 'disconnected' });
+    } catch (err) {
+      return res.status(502).json({ error: err.message });
+    }
+  });
+
+  // POST /whatsapp-accounts/:id/restart — gera novo QR
+  router.post('/api/v1/whatsapp-accounts/:id/restart', requireOrganization, async (req, res) => {
+    const account = await WhatsAppAccount.findOne({
+      _id: req.params.id, organizationId: toObjectId(req.organizationId),
+    }).select('+credentials +accessTokenEncrypted +clientTokenEncrypted');
+    if (!account) return res.status(404).json({ error: 'Conta não encontrada' });
+
+    try {
+      const { zapiCredentials } = await import('../providers/whatsapp/zapi/provider.js');
+      const creds = zapiCredentials(account.toObject());
+      const base  = (creds.baseUrl || 'https://api.z-api.io').replace(/\/$/, '');
+      await fetch(
+        `${base}/instances/${creds.instanceId}/token/${creds.token}/restart`,
+        { method: 'POST', headers: creds.clientToken ? { 'client-token': creds.clientToken } : {},
+          signal: AbortSignal.timeout(15_000) }
+      );
+      await WhatsAppAccount.updateOne({ _id: account._id }, { status: 'disconnected' });
+      return res.json({ ok: true, message: 'Instância reiniciada — gere o QR Code' });
+    } catch (err) {
+      return res.status(502).json({ error: err.message });
+    }
+  });
+
+  return router;
 }
