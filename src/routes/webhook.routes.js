@@ -1,16 +1,31 @@
+import crypto from 'node:crypto';
 import { Router } from 'express';
 import { env } from '../config/env.js';
 import { WhatsAppAccount } from '../models/index.js';
 import { normalizeMetaWebhook, normalizeZapiWebhook } from '../providers/whatsapp/index.js';
 import { processNormalizedEvent } from '../services/ingestion/message-ingestion.service.js';
-import { safeError } from '../services/logging/logger.js';
+import { safeError, safeLog } from '../services/logging/logger.js';
+
+// Verifica assinatura HMAC-SHA256 do Meta
+function verifyMetaSignature(rawBody, signature, appSecret) {
+  if (!appSecret || !signature) return false;
+  const expected = 'sha256=' + crypto
+    .createHmac('sha256', appSecret)
+    .update(rawBody)
+    .digest('hex');
+  try {
+    return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+  } catch {
+    return false;
+  }
+}
 
 export function webhookRoutes(io) {
   const router = Router();
 
   async function verifyMeta(req, res) {
-    const mode = req.query['hub.mode'];
-    const token = req.query['hub.verify_token'];
+    const mode      = req.query['hub.mode'];
+    const token     = req.query['hub.verify_token'];
     const challenge = req.query['hub.challenge'];
     if (mode !== 'subscribe' || !challenge) return res.sendStatus(403);
 
@@ -26,6 +41,18 @@ export function webhookRoutes(io) {
 
   async function receiveMeta(req, res) {
     try {
+      // Verifica assinatura HMAC — protege contra payloads falsos
+      const signature = req.headers['x-hub-signature-256'];
+      const appSecret = env.metaAppSecret || process.env.META_APP_SECRET;
+
+      if (appSecret) {
+        const valid = verifyMetaSignature(req.rawBody, signature, appSecret);
+        if (!valid) {
+          safeLog('[Meta webhook] invalid signature — rejected');
+          return res.sendStatus(401);
+        }
+      }
+
       const events = normalizeMetaWebhook(req.body);
       for (const event of events) await processNormalizedEvent(event, io);
       return res.json({ received: true, events: events.length });
@@ -37,37 +64,16 @@ export function webhookRoutes(io) {
 
   async function receiveZapi(req, res) {
     try {
-      console.log('[Z-API webhook] payload received', {
-        payload: req.body,
-      });
       const events = normalizeZapiWebhook(req.body);
-      console.log('[Z-API webhook] normalized events', {
-        count: events.length,
-        normalizedEvent: events,
-      });
       const results = [];
       for (const event of events) {
         const result = await processNormalizedEvent(event, io);
         results.push(result);
-        console.log('[Z-API webhook] ingestion result', {
-          event,
-          result,
-        });
       }
-      const paused = results.some((result) => result?.paused === true);
-      return res.json({
-        ok: true,
-        paused,
-        received: true,
-        events: events.length,
-        results,
-      });
+      safeLog('[Z-API webhook] processed', { events: events.length });
+      const paused = results.some(r => r?.paused === true);
+      return res.json({ ok: true, paused, received: true, events: events.length });
     } catch (error) {
-      console.log('[Z-API webhook] exception', {
-        message: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-        payload: req.body,
-      });
       safeError('[Z-API webhook] failed', error);
       return res.status(500).json({ error: 'Failed to process Z-API webhook' });
     }

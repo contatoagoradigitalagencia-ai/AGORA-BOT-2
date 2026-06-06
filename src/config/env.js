@@ -22,6 +22,7 @@ export const env = {
   groqApiKey: process.env.GROQ_API_KEY || '',
   groqModel: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
   metaVerifyToken: process.env.META_VERIFY_TOKEN || '',
+  metaAppSecret:   process.env.META_APP_SECRET   || '',
   metaGraphVersion: process.env.META_GRAPH_VERSION || 'v22.0',
   zapiBaseUrl: process.env.ZAPI_BASE_URL || 'https://api.z-api.io',
   zapiClientToken: process.env.ZAPI_CLIENT_TOKEN || '',
