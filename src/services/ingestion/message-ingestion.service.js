@@ -117,7 +117,7 @@ async function upsertContact(account, event) {
       phone: event.from,
     },
   };
-  console.log('[Ingestion] before contact upsert', {
+  safeLog('[Ingestion] contact upsert', {
     event,
     filter,
     update,
@@ -125,7 +125,8 @@ async function upsertContact(account, event) {
     collection: Contact.collection?.name,
   });
   const contact = await Contact.findOneAndUpdate(filter, update, { new: true, upsert: true });
-  console.log('[Ingestion] after contact upsert', {
+  // after contact upsert — details suppressed (PII)
+  safeLog('[Ingestion] contact saved', {
     event,
     contactId: contact?._id,
     phone: contact?.phone,
@@ -149,7 +150,7 @@ async function upsertConversation(account, contact, event) {
       aiEnabled: true,
     },
   };
-  console.log('[Ingestion] before conversation upsert', {
+  safeLog('[Ingestion] conversation upsert', {
     event,
     contactId: contact?._id,
     filter,
@@ -158,7 +159,7 @@ async function upsertConversation(account, contact, event) {
     collection: Conversation.collection?.name,
   });
   const conversation = await Conversation.findOneAndUpdate(filter, update, { new: true, upsert: true });
-  console.log('[Ingestion] after conversation upsert', {
+  safeLog('[Ingestion] conversation saved', {
     event,
     contactId: contact?._id,
     conversationId: conversation?._id,
@@ -248,23 +249,19 @@ async function saveMessage(account, contact, conversation, event, extra = {}) {
     };
   }
 
-  console.log('[Ingestion] before message upsert', {
-    event,
-    contactId: contact?._id,
+  safeLog('[Ingestion] before message upsert', {
+    provider:       event?.provider,
+    type:           event?.type,
+    direction:      event?.direction,
+    contactId:      contact?._id,
     conversationId: conversation?._id,
-    filter,
-    update,
-    database: Message.db?.name,
-    collection: Message.collection?.name,
+    // raw e text omitidos — podem conter dados pessoais
   });
   const message = await Message.findOneAndUpdate(filter, update, { new: true, upsert: true });
-  console.log('[Ingestion] after message upsert', {
-    event,
-    contactId: contact?._id,
-    conversationId: conversation?._id,
-    messageId: message?._id,
+  safeLog('[Ingestion] after message upsert', {
+    messageId:         message?._id,
     providerMessageId: message?.providerMessageId,
-    direction: message?.direction,
+    direction:         message?.direction,
   });
   return message;
 }
