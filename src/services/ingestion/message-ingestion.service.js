@@ -395,13 +395,10 @@ export async function processNormalizedEvent(event, io) {
     }
 
     if (!isAutoReplyEnabled(account)) {
-      console.log('[Ingestion] autoReply paused, message saved without AI response', {
-        event,
-        accountId: account?._id,
-        contactId: contact?._id,
+      safeLog('[Ingestion] autoReply paused', {
+        accountId:      account?._id,
         conversationId: conversation?._id,
-        messageId: inbound?._id,
-        autoReply: account?.settings?.autoReply,
+        autoReply:      account?.settings?.autoReply,
       });
       return {
         ok: true,

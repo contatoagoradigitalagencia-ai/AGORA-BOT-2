@@ -349,6 +349,14 @@ export function createSocketServer(httpServer) {
     });
 
 
+    // ── Disconnect — cleanup de rooms e listeners ──────────────────────────
+    socket.on('disconnect', (reason) => {
+      // Sai de todas as rooms para liberar referências
+      for (const room of socket.rooms) {
+        if (room !== socket.id) socket.leave(room);
+      }
+    });
+
   });
 
   // Emite nova mensagem em tempo real para o org correto

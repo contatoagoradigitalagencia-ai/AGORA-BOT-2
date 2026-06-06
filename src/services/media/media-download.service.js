@@ -74,7 +74,8 @@ function extractZapiMediaUrl(media, raw, account) {
 async function resolveMetaMediaUrl(mediaId, accessToken) {
   const metaVersion = env.metaGraphVersion || 'v22.0';
   const res = await fetchWithTimeout(
-    `https://graph.facebook.com/${metaVersion}/${mediaId}?access_token=${accessToken}`
+    `https://graph.facebook.com/${metaVersion}/${mediaId}?access_token=${accessToken}`,
+    { signal: AbortSignal.timeout(8000) }
   );
   if (!res.ok) throw new Error(`Meta media resolve failed: ${res.status}`);
   const data = await res.json();
@@ -110,7 +111,7 @@ export async function downloadProviderMedia({ provider, account, media, raw }) {
 
     if (!downloadUrl) throw new Error('No download URL available');
 
-    const res = await fetchWithTimeout(downloadUrl, { headers: authHeaders });
+    const res = await fetchWithTimeout(downloadUrl, { headers: authHeaders }); // timeout via fetchWithTimeout
     if (!res.ok) throw new Error(`Download failed: ${res.status}`);
 
     const contentType  = res.headers.get('content-type') || media?.mimeType || media?.mimetype || 'application/octet-stream';
