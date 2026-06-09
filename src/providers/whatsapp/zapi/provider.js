@@ -68,9 +68,36 @@ async function post(account, action, payload) {
   return data;
 }
 
+async function get(account, action) {
+  const { data } = await axios.get(baseUrl(account, action), {
+    headers: headers(account),
+    timeout: 15000,
+  });
+  return data;
+}
+
+function normalizeZapiStatus(raw) {
+  const connected = !!(
+    raw?.connected === true ||
+    raw?.value === 'CONNECTED' ||
+    ['connected', 'open', 'online', 'CONNECTED'].includes(raw?.value) ||
+    ['connected', 'open', 'online'].includes(raw?.status)
+  );
+  return { connected, raw };
+}
+
 export function createZapiProvider(account) {
   return {
     name: 'zapi',
+    async getStatus() {
+      const raw = await get(account, 'status');
+      return normalizeZapiStatus(raw);
+    },
+    async getQr() {
+      const raw = await get(account, 'qr-code');
+      const qr = raw?.value || raw?.qrCode || raw?.qrcode || raw?.qr || raw?.image || null;
+      return { qr };
+    },
     async sendText(to, text) {
       return post(account, 'send-text', { phone: to, message: text });
     },

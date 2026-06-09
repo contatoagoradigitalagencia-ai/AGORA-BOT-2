@@ -1713,11 +1713,12 @@ export function internalRoutes() {
     return res.status(201).json({ data: publicAccount(account) });
   });
 
-  // GET /whatsapp-accounts/me — cliente vê só as contas da própria org
+  // GET /whatsapp-accounts/me — conta primária da org para o painel /connect
   router.get('/api/v1/whatsapp-accounts/me', requireOrganization, async (req, res) => {
-    const accounts = await WhatsAppAccount.find({ organizationId: toObjectId(req.organizationId) })
-      .sort({ createdAt: -1 }).lean();
-    res.json({ data: accounts.map(publicAccount) });
+    const account = await WhatsAppAccount.findOne({ organizationId: toObjectId(req.organizationId) })
+      .sort({ createdAt: 1 }).lean();
+    if (!account) return res.status(404).json({ error: 'Nenhuma conta WhatsApp configurada' });
+    res.json({ data: publicAccount(account) });
   });
 
   // POST /whatsapp-accounts/:id/qr — busca QR Code na Z-API
@@ -1751,9 +1752,41 @@ export function internalRoutes() {
       const qr = data.value || data.qrcode || data.qr || null;
       if (!qr) return res.status(202).json({ status: 'already_connected', message: 'Dispositivo já conectado' });
 
-      return res.json({ qr, format: qr.startsWith('data:') ? 'base64' : 'url' });
+      return res.json({ data: { qr, format: qr.startsWith('data:') ? 'base64' : 'url' } });
     } catch (err) {
       return res.status(502).json({ error: 'Não foi possível obter QR Code: ' + err.message });
+    }
+  });
+
+  // POST /whatsapp-accounts/:id/status — usado pelo painel /connect (polling)
+  router.post('/api/v1/whatsapp-accounts/:id/status', requireOrganization, async (req, res) => {
+    const account = await WhatsAppAccount.findOne({
+      _id:            req.params.id,
+      organizationId: toObjectId(req.organizationId),
+    }).select('+credentials +accessTokenEncrypted +clientTokenEncrypted');
+
+    if (!account) return res.status(404).json({ error: 'Conta não encontrada' });
+
+    try {
+      const { zapiCredentials } = await import('../providers/whatsapp/zapi/provider.js');
+      const creds = zapiCredentials(account.toObject());
+      const base  = (creds.baseUrl || 'https://api.z-api.io').replace(/\/$/, '');
+
+      const zapiRes = await fetch(
+        `${base}/instances/${creds.instanceId}/token/${creds.token}/status`,
+        { headers: creds.clientToken ? { 'client-token': creds.clientToken } : {},
+          signal: AbortSignal.timeout(8_000) }
+      );
+
+      const raw = await zapiRes.json().catch(() => ({}));
+      const connected = raw?.connected === true || raw?.value === 'open' || raw?.status === 'open';
+      const status = connected ? 'active' : 'disconnected';
+
+      WhatsAppAccount.updateOne({ _id: account._id }, { status }).catch(() => {});
+
+      return res.json({ data: { connected, status } });
+    } catch (err) {
+      return res.status(502).json({ error: 'Não foi possível verificar status: ' + err.message });
     }
   });
 
